@@ -1,153 +1,142 @@
 <template>
   <div id="map-container">
     <div id="map"></div>
+    
+    <!-- 右下角旋轉控制按鈕 -->
+    <button class="compass-btn" @click="toggleCompass">
+      {{ isCompassActive ? '🧭 關閉追蹤方向' : '🧭 隨方向旋轉' }}
+    </button>
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 
 let map = null;
+let glLayer = null;
+let watchId = null;
 
-// 自動判斷開發或正式環境
+const isCompassActive = ref(false);
+
+const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
+const LANG = 'tc';
 const isProd = import.meta.env.PROD;
-
-// 正式環境直接呼叫地政總署官方 API，開發環境透過 Vite Proxy
 const CSDI_HOST = isProd 
   ? 'https://mapapi.geodata.gov.hk/gs/api' 
   : `${window.location.origin}/csdi-api`;
 
-const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
-const LANG = 'tc'; // 這裡只宣告一次 LANG
+// 處理指南針方向事件
+const handleOrientation = (event) => {
+  if (!isCompassActive.value || !glLayer) return;
 
-// 1. 底圖
-const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json?key=${API_KEY}`;
+  let heading = null;
 
-// 2. 標籤
-const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
+  // iOS 裝置專用指南針角度 (0 = 正北)
+  if (event.webkitCompassHeading !== undefined) {
+    heading = event.webkitCompassHeading;
+  } 
+  // Android / 其它瀏覽器 (alpha 為 0-360)
+  else if (event.alpha !== null) {
+    heading = 360 - event.alpha;
+  }
 
-onMounted(async () => {
-  const L = window.L;
+  if (heading !== null) {
+    // 獲取 MapLibre 底層地圖實例
+    const maplibreMap = glLayer.getMaplibreMap();
+    if (maplibreMap) {
+      // 順暢旋轉地圖至當前方向
+      maplibreMap.rotateTo(heading, { duration: 300 });
+    }
+  }
+};
 
-  if (!L || !L.maplibreGL) {
-    console.error('Leaflet 或 MapLibreGL 插件未成功載入');
+// 開啟/關閉指南針追蹤
+const toggleCompass = async () => {
+  if (isCompassActive.value) {
+    // 關閉指南針
+    window.removeEventListener('deviceorientation', handleOrientation);
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+    
+    // 重設地圖回正北向上 (Bearing 0)
+    const maplibreMap = glLayer?.getMaplibreMap();
+    if (maplibreMap) maplibreMap.rotateTo(0, { duration: 500 });
+    
+    isCompassActive.value = false;
     return;
   }
 
-  try {
-    const [basemapRes, labelRes] = await Promise.all([
-      fetch(BASEMAP_STYLE_URL),
-      fetch(LABEL_STYLE_URL)
-    ]);
-
-    const basemapStyle = await basemapRes.json();
-    let labelStyle = await labelRes.json();
-
-    delete basemapStyle.sprite;
-    delete labelStyle.sprite;
-
-    if (basemapStyle.sources) {
-      Object.keys(basemapStyle.sources).forEach((key) => {
-        basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
-        basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15;
-        delete basemapStyle.sources[key].url;
-      });
+  // iOS 13+ 需要使用者手動授權 DeviceOrientation 權限
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const permission = await DeviceOrientationEvent.requestPermission();
+      if (permission !== 'granted') {
+        alert('請允許取用指南針方向權限');
+        return;
+      }
+    } catch (error) {
+      console.error('指南針授權失敗:', error);
+      return;
     }
-
-    let labelStr = JSON.stringify(labelStyle);
-    labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
-    labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
-    labelStr = labelStr.replace(/Arial/g, 'Noto Sans Regular');
-    labelStyle = JSON.parse(labelStr);
-
-    const labelSourceKey = 'csdi-label-source';
-    const labelLayers = labelStyle.layers || [];
-    labelLayers.forEach((layer) => {
-      layer.source = labelSourceKey;
-      if (layer.layout && layer.layout['icon-image']) {
-        delete layer.layout['icon-image'];
-      }
-    });
-
-    const mergedStyle = {
-      version: 8,
-      glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
-      sources: {
-        ...basemapStyle.sources,
-        [labelSourceKey]: {
-          type: 'vector',
-          tiles: [LABEL_TILE_URL],
-          minzoom: 7,
-          maxzoom: 15
-        }
-      },
-      layers: [
-        ...(basemapStyle.layers || []),
-        ...labelLayers
-      ]
-    };
-
-    map = L.map('map', {
-      center: [22.3193, 114.1694],
-      zoom: 12,
-      minZoom: 7,
-      maxZoom: 15,
-      touchZoom: true,
-      dragging: true
-    });
-
-    const glLayer = L.maplibreGL({
-      style: mergedStyle,
-      transformRequest: (url) => {
-        let reqUrl = url;
-
-        if (reqUrl.includes('/fonts/')) {
-          reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular');
-          reqUrl = reqUrl.replace(/Arial Regular/g, 'Noto Sans Regular');
-          reqUrl = reqUrl.replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold');
-          reqUrl = reqUrl.replace(/Arial Bold/g, 'Noto Sans Bold');
-          reqUrl = reqUrl.replace(/Arial/g, 'Noto%20Sans%20Regular');
-        }
-
-        if (reqUrl.includes('mapapi.geodata.gov.hk') && !reqUrl.includes('key=')) {
-          reqUrl += (reqUrl.includes('?') ? '&' : '?') + `key=${API_KEY}`;
-        }
-
-        return { url: reqUrl };
-      }
-    });
-
-    glLayer.addTo(map);
-
-    const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>CSDI Vector Basemap + Label in Leaflet!').openPopup();
-
-  } catch (error) {
-    console.error('載入失敗：', error);
   }
+
+  // 監聽手機方向變化
+  window.addEventListener('deviceorientation', handleOrientation, true);
+  isCompassActive.value = true;
+};
+
+onMounted(async () => {
+  const L = window.L;
+  if (!L || !L.maplibreGL) return;
+
+  // ... (保留你原本合併 basemapStyle 與 labelStyle 的邏輯) ...
+
+  map = L.map('map', {
+    center: [22.3193, 114.1694],
+    zoom: 15,
+    touchZoom: true,
+    dragging: true
+  });
+
+  glLayer = L.maplibreGL({
+    style: mergedStyle,
+    transformRequest: (url) => { /* 保留原本 transformRequest 邏輯 */ }
+  });
+
+  glLayer.addTo(map);
 });
 
 onUnmounted(() => {
-  if (map) {
-    map.remove();
-  }
+  if (watchId) navigator.geolocation.clearWatch(watchId);
+  window.removeEventListener('deviceorientation', handleOrientation);
+  if (map) map.remove();
 });
 </script>
 
 <style scoped>
 #map-container {
+  position: relative;
   width: 100vw;
   height: 100vh;
-  margin: 0;
-  padding: 0;
 }
 
 #map {
   width: 100%;
   height: 100%;
   touch-action: none;
+}
+
+/* 浮動控制按鈕 */
+.compass-btn {
+  position: absolute;
+  bottom: 30px;
+  right: 20px;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #ccc;
+  padding: 10px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  cursor: pointer;
 }
 </style>
