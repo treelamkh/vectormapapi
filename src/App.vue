@@ -94,7 +94,7 @@ onMounted(async () => {
       center: [22.3193, 114.1694],
       zoom: 12,
       minZoom: 7,
-      maxZoom: 19,
+      maxZoom: 15,
       touchZoom: true,
       dragging: true
     });
