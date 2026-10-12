@@ -54,6 +54,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 let map = null;
 let glLayer = null;
 let watchId = null;
+let activePopupMarker = null; // 用來追蹤當前彈出的 Marker
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -377,11 +378,11 @@ onMounted(async () => {
         updateMtrIconImage(maplibreMap, '#0055b8');
       });
 
-      // 改用更穩健的全局點擊查詢 (queryRenderedFeatures)
+      // 點擊 MTR 圖標時，使用 Leaflet 原生 L.marker 與 Popup 顯示屬性
       maplibreMap.on('click', (e) => {
         const bbox = [
-          [e.point.x - 8, e.point.y - 8],
-          [e.point.x + 8, e.point.y + 8]
+          [e.point.x - 10, e.point.y - 10],
+          [e.point.x + 10, e.point.y + 10]
         ];
         const features = maplibreMap.queryRenderedFeatures(bbox, {
           layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
@@ -391,8 +392,17 @@ onMounted(async () => {
 
         const feature = features[0];
         const props = feature.properties;
+        const coords = [e.lngLat.lat, e.lngLat.lng];
 
-        let htmlContent = `<div style="font-family: sans-serif; max-height: 220px; overflow-y: auto; padding: 4px;">
+        // 移除舊的 Marker 避免畫面堆疊
+        if (activePopupMarker) {
+          map.removeLayer(activePopupMarker);
+        }
+
+        // 建立你指定的 L.marker 方式
+        activePopupMarker = L.marker(coords).addTo(map);
+
+        let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto; padding: 4px;">
           <b style="color: #0055b8; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 6px 0;">`;
         
         for (const [key, val] of Object.entries(props)) {
@@ -400,13 +410,9 @@ onMounted(async () => {
         }
         htmlContent += `</div>`;
 
-        new L.Popup()
-          .setLatLng([e.lngLat.lat, e.lngLat.lng])
-          .setContent(htmlContent)
-          .openOn(map);
+        activePopupMarker.bindPopup(htmlContent).openPopup();
       });
 
-      // 滑鼠移到圖標上時變成手指指標
       ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19'].forEach((layerId) => {
         maplibreMap.on('mouseenter', layerId, () => {
           maplibreMap.getCanvas().style.cursor = 'pointer';
@@ -418,7 +424,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Clickable MTR Logos Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>L.marker Popup Integration Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
