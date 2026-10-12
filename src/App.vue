@@ -20,6 +20,20 @@
         </div>
       </div>
 
+      <!-- 鐵路出入口圖層控制 -->
+      <div class="panel-group">
+        <span class="group-title">🚇 鐵路出入口圖層</span>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
+          顯示鐵路出入口 (Lv17-20)
+        </label>
+        <div class="button-row" style="margin-top: 6px;">
+          <button @click="toggleRailwayColor" :class="{ active: isTransportGreen }">
+            {{ isTransportGreen ? '🟢 運輸署綠色' : '🎨 官方原色' }}
+          </button>
+        </div>
+      </div>
+
       <!-- 當前 Zoom Level 顯示 -->
       <div class="panel-group">
         <span class="group-title">🔍 地圖層級</span>
@@ -44,7 +58,13 @@ let watchId = null;
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
-const currentZoom = ref(15); // 預設縮放級數
+const currentZoom = ref(15);
+
+// 鐵路圖層狀態
+const isRailwayVisible = ref(true);
+const isTransportGreen = ref(false);
+const railwayLayerIds = ref([]);
+let originalRailwayColors = {};
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -54,7 +74,7 @@ const CSDI_HOST = isProd
   : `${window.location.origin}/csdi-api`;
 
 const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json?key=${API_KEY}`;
+const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/HK80/resources/styles/root.json?key=${API_KEY}`; // 使用帶有 HK80/WGS84 結構的 root.json
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
 const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
 
@@ -96,6 +116,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
+    if (railwayLayerIds.value.includes(layerId)) return; // 略過鐵路圖層，保留其獨立顏色
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -112,16 +133,54 @@ const toggleTheme = (mode) => {
         }
       } else if (layer.type === 'line') {
         maplibreMap.setPaintProperty(layerId, 'line-color', '#2c374e');
-      } else if (layer.type === 'symbol') {
-        if (layer.paint && layer.paint['text-color']) {
-          maplibreMap.setPaintProperty(layerId, 'text-color', '#e0e6ed');
-        }
-        if (layer.paint && layer.paint['text-halo-color']) {
-          maplibreMap.setPaintProperty(layerId, 'text-halo-color', '#12161f');
-        }
       }
     } else {
       const orig = originalColors[layerId];
+      if (orig) {
+        Object.keys(orig).forEach((prop) => {
+          maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
+        });
+      }
+    }
+  });
+};
+
+// 鐵路圖層顯示 / 隱藏切換
+const toggleRailwayLayer = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  const visibility = isRailwayVisible.value ? 'visible' : 'none';
+  railwayLayerIds.value.forEach((layerId) => {
+    if (maplibreMap.getLayer(layerId)) {
+      maplibreMap.setLayoutProperty(layerId, 'visibility', visibility);
+    }
+  });
+};
+
+// 鐵路圖層顏色切換（原色 vs 運輸署主題綠色 #008000）
+const toggleRailwayColor = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  isTransportGreen.value = !isTransportGreen.value;
+
+  railwayLayerIds.value.forEach((layerId) => {
+    const layer = maplibreMap.getLayer(layerId);
+    if (!layer) return;
+
+    if (isTransportGreen.value) {
+      if (layer.type === 'fill') {
+        maplibreMap.setPaintProperty(layerId, 'fill-color', '#008000');
+      } else if (layer.type === 'line') {
+        maplibreMap.setPaintProperty(layerId, 'line-color', '#008000');
+      } else if (layer.type === 'symbol') {
+        maplibreMap.setPaintProperty(layerId, 'icon-color', '#008000');
+        maplibreMap.setPaintProperty(layerId, 'text-color', '#008000');
+      }
+    } else {
+      // 恢復原色
+      const orig = originalRailwayColors[layerId];
       if (orig) {
         Object.keys(orig).forEach((prop) => {
           maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
@@ -189,9 +248,19 @@ onMounted(async () => {
       });
     }
 
+    // 從官方 style 中萃取出我們要的鐵路出入口圖層
+    const targetRailwayLayers = [];
     if (basemapStyle.layers) {
+      basemapStyle.layers.forEach((layer) => {
+        if (layer.id.includes('RailwayEntrance_5K')) {
+          targetRailwayLayers.push(layer);
+          railwayLayerIds.value.push(layer.id);
+        }
+      });
+
+      // 過濾掉一般背景符號圖層
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
-        if (layer.type === 'symbol') return false;
+        if (layer.type === 'symbol' && !layer.id.includes('RailwayEntrance_5K')) return false;
         return true;
       });
     }
@@ -221,7 +290,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15
+          maxzoom: 20
         }
       },
       layers: [
@@ -236,24 +305,24 @@ onMounted(async () => {
       }
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        if (railwayLayerIds.value.includes(layer.id)) {
+          originalRailwayColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        }
       }
     });
 
-    // 建立 Leaflet 地圖，maxZoom 解放至 20
     map = L.map('map', {
       center: [22.3193, 114.1694],
       zoom: 15,
       minZoom: 7,
-      maxZoom: 20, // 👈 解放至 LV20
+      maxZoom: 20,
       touchZoom: true,
       dragging: true,
       zoomControl: false
     });
 
-    // 加入右上角 Zoom 控制列
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // 即時監聽 Zoom Level 變更
     currentZoom.value = map.getZoom();
     map.on('zoom', () => {
       currentZoom.value = map.getZoom();
@@ -279,8 +348,21 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
+    const maplibreMap = glLayer.getMaplibreMap();
+    if (maplibreMap) {
+      maplibreMap.on('styleimagemissing', (e) => {
+        const img = new Image();
+        img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        img.onload = () => {
+          if (!maplibreMap.hasImage(e.id)) {
+            maplibreMap.addImage(e.id, img);
+          }
+        };
+      });
+    }
+
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>MaxZoom Level 20 Unlocked!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Railway Entrance Layers Added!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -324,7 +406,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 240px;
+  max-width: 250px;
 }
 
 .panel-group {
@@ -338,6 +420,16 @@ onUnmounted(() => {
   font-weight: 700;
   color: #666;
   text-transform: uppercase;
+}
+
+.checkbox-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .zoom-display {
@@ -374,9 +466,9 @@ onUnmounted(() => {
 }
 
 .button-row button.active {
-  background: #409eff;
+  background: #008000;
   color: #fff;
-  border-color: #409eff;
+  border-color: #008000;
 }
 
 .compass-btn {
