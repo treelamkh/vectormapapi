@@ -22,14 +22,14 @@
 
       <!-- 鐵路出入口圖層控制 -->
       <div class="panel-group">
-        <span class="group-title">🚇 鐵路出入口點圖層</span>
+        <span class="group-title">🚇 港鐵出入口圖標圖層</span>
         <label class="checkbox-label">
           <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
-          顯示鐵路出入口 (Lv17-20)
+          顯示 MTR 出入口 (Lv17-20)
         </label>
         <div class="button-row" style="margin-top: 6px;">
           <button @click="toggleRailwayColor" :class="{ active: isTransportGreen }">
-            {{ isTransportGreen ? '🟢 運輸署綠色' : '🎨 預設藍色' }}
+            {{ isTransportGreen ? '🟢 運輸署綠色' : '🔵 MTR 經典藍' }}
           </button>
         </div>
       </div>
@@ -113,7 +113,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (layerId === 'safe-railway-circle-17' || layerId === 'safe-railway-circle-19') return;
+    if (layerId === 'mtr-entrance-symbol-17' || layerId === 'mtr-entrance-symbol-19') return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -147,11 +147,45 @@ const toggleRailwayLayer = () => {
   if (!maplibreMap) return;
 
   const visibility = isRailwayVisible.value ? 'visible' : 'none';
-  if (maplibreMap.getLayer('safe-railway-circle-17')) {
-    maplibreMap.setLayoutProperty('safe-railway-circle-17', 'visibility', visibility);
+  if (maplibreMap.getLayer('mtr-entrance-symbol-17')) {
+    maplibreMap.setLayoutProperty('mtr-entrance-symbol-17', 'visibility', visibility);
   }
-  if (maplibreMap.getLayer('safe-railway-circle-19')) {
-    maplibreMap.setLayoutProperty('safe-railway-circle-19', 'visibility', visibility);
+  if (maplibreMap.getLayer('mtr-entrance-symbol-19')) {
+    maplibreMap.setLayoutProperty('mtr-entrance-symbol-19', 'visibility', visibility);
+  }
+};
+
+// 動態重新產生並更新 MTR Icon 顏色（藍色 vs 運輸署綠色）
+const updateMtrIconImage = (maplibreMap, colorHex) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+
+  // 畫圓形背景
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fillStyle = colorHex;
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  // 畫 MTR 標誌線條（簡化版港鐵軌道交匯符號）
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(18, 32); ctx.lineTo(46, 32);
+  ctx.moveTo(24, 20); ctx.lineTo(40, 44);
+  ctx.moveTo(24, 44); ctx.lineTo(40, 20);
+  ctx.stroke();
+
+  const imgData = ctx.getImageData(0, 0, 64, 64);
+  if (maplibreMap.hasImage('mtr-logo-dynamic')) {
+    maplibreMap.updateImage('mtr-logo-dynamic', imgData);
+  } else {
+    maplibreMap.addImage('mtr-logo-dynamic', imgData);
   }
 };
 
@@ -160,14 +194,8 @@ const toggleRailwayColor = () => {
   if (!maplibreMap) return;
 
   isTransportGreen.value = !isTransportGreen.value;
-  const newColor = isTransportGreen.value ? '#008000' : '#1d70b8';
-
-  if (maplibreMap.getLayer('safe-railway-circle-17')) {
-    maplibreMap.setPaintProperty('safe-railway-circle-17', 'circle-color', newColor);
-  }
-  if (maplibreMap.getLayer('safe-railway-circle-19')) {
-    maplibreMap.setPaintProperty('safe-railway-circle-19', 'circle-color', newColor);
-  }
+  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
+  updateMtrIconImage(maplibreMap, colorHex);
 };
 
 const handleOrientation = (event) => {
@@ -272,35 +300,33 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 若它是 Point，用 circle 渲染 Lv17-18
+    // 以 Symbol 類型加入 MTR Logo 圖標圖層 (Lv17-19)
     mergedStyle.layers.push({
-      id: 'safe-railway-circle-17',
-      type: 'circle',
+      id: 'mtr-entrance-symbol-17',
+      type: 'symbol',
       source: firstSourceKey,
       'source-layer': '0_RailwayEntrance_5K:1',
       minzoom: 17,
       maxzoom: 19,
-      paint: {
-        'circle-radius': 5,
-        'circle-color': '#1d70b8',
-        'circle-stroke-width': 1.5,
-        'circle-stroke-color': '#ffffff'
+      layout: {
+        'icon-image': 'mtr-logo-dynamic',
+        'icon-size': 0.5,
+        'icon-allow-overlap': true
       }
     });
 
-    // 若它是 Point，用 circle 渲染 Lv19-20
+    // 以 Symbol 類型加入 MTR Logo 圖標圖層 (Lv19-20)
     mergedStyle.layers.push({
-      id: 'safe-railway-circle-19',
-      type: 'circle',
+      id: 'mtr-entrance-symbol-19',
+      type: 'symbol',
       source: firstSourceKey,
       'source-layer': '0_RailwayEntrance_5K:2',
       minzoom: 19,
       maxzoom: 20,
-      paint: {
-        'circle-radius': 6,
-        'circle-color': '#1d70b8',
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#ffffff'
+      layout: {
+        'icon-image': 'mtr-logo-dynamic',
+        'icon-size': 0.65,
+        'icon-allow-overlap': true
       }
     });
 
@@ -350,8 +376,47 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
+    const maplibreMap = glLayer.getMaplibreMap();
+    if (maplibreMap) {
+      maplibreMap.on('load', () => {
+        // 初始載入 MTR 經典藍 Logo
+        updateMtrIconImage(maplibreMap, '#0055b8');
+      });
+
+      // 點擊事件：彈出 Properties 屬性視窗
+      ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19'].forEach((layerId) => {
+        maplibreMap.on('click', layerId, (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const feature = e.features[0];
+          const props = feature.properties;
+
+          // 組合 HTML 顯示所有 properties 屬性
+          let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto;">
+            <b style="color: #0055b8; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 4px 0;">`;
+          
+          for (const [key, val] of Object.entries(props)) {
+            htmlContent += `<div><b>${key}:</b> ${val}</div>`;
+          }
+          htmlContent += `</div>`;
+
+          new L.Popup()
+            .setLatLng([e.lngLat.lat, e.lngLat.lng])
+            .setContent(htmlContent)
+            .openOn(map);
+        });
+
+        // 滑鼠移上去時游標變成手指指標
+        maplibreMap.on('mouseenter', layerId, () => {
+          maplibreMap.getCanvas().style.cursor = 'pointer';
+        });
+        maplibreMap.on('mouseleave', layerId, () => {
+          maplibreMap.getCanvas().style.cursor = '';
+        });
+      });
+    }
+
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Railway Point Circle Layer Active!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>MTR Logo & Clickable Properties Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
