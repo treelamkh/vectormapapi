@@ -182,10 +182,8 @@ onMounted(async () => {
       });
     }
 
-    // 過濾掉底圖中所有會引發圖標錯誤或類型不支援的 symbol 圖層
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
-        // 移除所有圖標符號圖層，只保留背景、填充與線條
         if (layer.type === 'symbol') return false;
         return true;
       });
@@ -201,6 +199,7 @@ onMounted(async () => {
     const labelLayers = labelStyle.layers || [];
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
+      delete layer.maxzoom; // 移除圖層自身的 maxzoom 限制
       if (layer.layout) {
         delete layer.layout['icon-image'];
       }
@@ -215,7 +214,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15
+          maxzoom: 19 // 將標籤來源的 maxzoom 提高到 19，實現完美 Overzooming
         }
       },
       layers: [
@@ -263,7 +262,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Clean & Stable Map!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Labels visible up to zoom 19!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
