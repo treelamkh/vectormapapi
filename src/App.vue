@@ -60,7 +60,6 @@ const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
-// 鐵路圖層狀態
 const isRailwayVisible = ref(true);
 const isTransportGreen = ref(false);
 const railwayLayerIds = ref([]);
@@ -74,7 +73,7 @@ const CSDI_HOST = isProd
   : `${window.location.origin}/csdi-api`;
 
 const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/HK80/resources/styles/root.json?key=${API_KEY}`; // 使用帶有 HK80/WGS84 結構的 root.json
+const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/HK80/resources/styles/root.json?key=${API_KEY}`;
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
 const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
 
@@ -116,7 +115,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (railwayLayerIds.value.includes(layerId)) return; // 略過鐵路圖層，保留其獨立顏色
+    if (railwayLayerIds.value.includes(layerId)) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -145,7 +144,6 @@ const toggleTheme = (mode) => {
   });
 };
 
-// 鐵路圖層顯示 / 隱藏切換
 const toggleRailwayLayer = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -158,7 +156,6 @@ const toggleRailwayLayer = () => {
   });
 };
 
-// 鐵路圖層顏色切換（原色 vs 運輸署主題綠色 #008000）
 const toggleRailwayColor = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -175,11 +172,9 @@ const toggleRailwayColor = () => {
       } else if (layer.type === 'line') {
         maplibreMap.setPaintProperty(layerId, 'line-color', '#008000');
       } else if (layer.type === 'symbol') {
-        maplibreMap.setPaintProperty(layerId, 'icon-color', '#008000');
         maplibreMap.setPaintProperty(layerId, 'text-color', '#008000');
       }
     } else {
-      // 恢復原色
       const orig = originalRailwayColors[layerId];
       if (orig) {
         Object.keys(orig).forEach((prop) => {
@@ -248,17 +243,17 @@ onMounted(async () => {
       });
     }
 
-    // 從官方 style 中萃取出我們要的鐵路出入口圖層
-    const targetRailwayLayers = [];
+    // 萃取鐵路出入口圖層，並徹底清除 icon-image 避免找不到圖標崩潰
     if (basemapStyle.layers) {
       basemapStyle.layers.forEach((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) {
-          targetRailwayLayers.push(layer);
           railwayLayerIds.value.push(layer.id);
+          if (layer.layout) {
+            delete layer.layout['icon-image']; // 移除找不到的圖標相依
+          }
         }
       });
 
-      // 過濾掉一般背景符號圖層
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
         if (layer.type === 'symbol' && !layer.id.includes('RailwayEntrance_5K')) return false;
         return true;
@@ -362,7 +357,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Railway Entrance Layers Added!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Railway layers fixed!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -439,67 +434,4 @@ onUnmounted(() => {
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid #dcdfe6;
-  text-align: center;
-}
-
-.button-row {
-  display: flex;
-  gap: 6px;
-}
-
-.button-row button {
-  flex: 1;
-  background: #f0f2f5;
-  color: #222;
-  border: 1px solid #dcdfe6;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.button-row button:hover {
-  background: #e4e7ed;
-}
-
-.button-row button.active {
-  background: #008000;
-  color: #fff;
-  border-color: #008000;
-}
-
-.compass-btn {
-  position: absolute;
-  bottom: calc(30px + env(safe-area-inset-bottom));
-  right: 16px;
-  z-index: 1000;
-  background: #ffffff;
-  color: #333333;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  padding: 10px 16px;
-  border-radius: 24px;
-  font-size: 14px;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  .control-panel {
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    max-width: none;
-    padding: 8px 10px;
-    gap: 6px;
-  }
-  .button-row button {
-    padding: 5px 6px;
-    font-size: 11px;
-  }
-}
-</style>
+  text-align
