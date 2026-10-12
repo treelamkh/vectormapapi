@@ -20,25 +20,18 @@
         </div>
       </div>
 
-      <!-- 鐵路 Line 格式控制面板 -->
+      <!-- 鐵路線條控制面板 -->
       <div class="panel-group">
         <span class="group-title">🚆 鐵路線條 (Line) 控制</span>
         <div class="button-row">
-          <button @click="setRailwayLineRedBold">🔴 變粗變紅</button>
-          <button @click="setRailwayLineDash">⚡ 虛線</button>
-          <button @click="resetRailwayLine">🔄 還原預設</button>
-        </div>
-      </div>
-
-      <!-- 鐵路 Polygon 格式控制面板 -->
-      <div class="panel-group">
-        <span class="group-title">🏢 鐵路多邊形 (Polygon) 控制</span>
-        <div class="button-row">
-          <button @click="toggleRailwayPolygonVisibility">
-            {{ isPolygonVisible ? '🙈 隱藏 Polygon' : '👁️ 顯示 Polygon' }}
+          <button @click="toggleRailwayLineRedBold" :class="{ active: isRedBold }">
+            {{ isRedBold ? '🔴 取消粗紅' : '🔴 變粗變紅' }}
           </button>
-          <button @click="setRailwayPolygonMagenta" :class="{ active: isPolygonMagenta }">
-            🟣 紫紅色填滿
+          <button @click="toggleRailwayLineDash" :class="{ active: isDashed }">
+            {{ isDashed ? '⚡ 實線' : '⚡ 虛線' }}
+          </button>
+          <button @click="toggleRailwayLineVisibility" :class="{ active: !isLineLayerVisible }">
+            {{ isLineLayerVisible ? '🙈 關閉 Layer' : '👁️ 開啟 Layer' }}
           </button>
         </div>
       </div>
@@ -64,6 +57,7 @@ let map = null;
 let glLayer = null;
 let watchId = null;
 let mtrMarkersGroup = null;
+let rainbowTimer = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -71,8 +65,11 @@ const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
 const isRailwayVisible = ref(true);
-const isPolygonVisible = ref(true);
-const isPolygonMagenta = ref(false);
+
+// 鐵路線條按鈕狀態
+const isRedBold = ref(false);
+const isDashed = ref(false);
+const isLineLayerVisible = ref(true);
 
 const railwayLineLayers = [
   'LV7-LV12/2_Railway/TSPTLINE_200K:11',
@@ -83,14 +80,7 @@ const railwayLineLayers = [
   'Lv13/1_Railway/TSPTLINE_50K:4'
 ];
 
-const railwayPolygonLayers = [
-  'Lv16/7_Railway/TSPTPOLY_10K:2/MTS, Underground',
-  'Lv16/7_Railway/TSPTPOLY_10K:2/MTS, Elevated, Over',
-  'Lv16/7_Railway/TSPTPOLY_10K:2/HSS, Underground'
-];
-
 let originalLinePaint = {};
-let originalPolygonPaint = {};
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -142,7 +132,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (railwayLineLayers.includes(layerId) || railwayPolygonLayers.includes(layerId)) return;
+    if (railwayLineLayers.includes(layerId)) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -171,81 +161,82 @@ const toggleTheme = (mode) => {
   });
 };
 
-// --- Railway Line 按鈕功能 ---
-const setRailwayLineRedBold = () => {
+// --- 第 1 粒 Button: Enable/Disable 變粗變紅 ---
+const toggleRailwayLineRedBold = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
 
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      maplibreMap.setPaintProperty(id, 'line-color', '#ff0000');
-      maplibreMap.setPaintProperty(id, 'line-width', 5);
-      maplibreMap.setPaintProperty(id, 'line-dasharray', []); // 移除虛線
-    }
-  });
-};
-
-const setRailwayLineDash = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
+  isRedBold.value = !isRedBold.value;
 
   railwayLineLayers.forEach((id) => {
     if (maplibreMap.getLayer(id)) {
-      maplibreMap.setPaintProperty(id, 'line-dasharray', [4, 2]);
-    }
-  });
-};
-
-const resetRailwayLine = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      const orig = originalLinePaint[id];
-      if (orig) {
-        if (orig['line-color']) maplibreMap.setPaintProperty(id, 'line-color', orig['line-color']);
-        if (orig['line-width']) maplibreMap.setPaintProperty(id, 'line-width', orig['line-width']);
-        maplibreMap.setPaintProperty(id, 'line-dasharray', orig['line-dasharray'] || []);
+      if (isRedBold.value) {
+        maplibreMap.setPaintProperty(id, 'line-color', '#ff0000');
+        maplibreMap.setPaintProperty(id, 'line-width', 5);
+      } else {
+        const orig = originalLinePaint[id];
+        if (orig) {
+          if (orig['line-color']) maplibreMap.setPaintProperty(id, 'line-color', orig['line-color']);
+          if (orig['line-width']) maplibreMap.setPaintProperty(id, 'line-width', orig['line-width']);
+        }
       }
     }
   });
 };
 
-// --- Railway Polygon 按鈕功能 ---
-const toggleRailwayPolygonVisibility = () => {
+// --- 第 2 粒 Button: 虛線 / 實線切換 ---
+const toggleRailwayLineDash = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
 
-  isPolygonVisible.value = !isPolygonVisible.value;
-  const visibility = isPolygonVisible.value ? 'visible' : 'none';
+  isDashed.value = !isDashed.value;
+  const dashArray = isDashed.value ? [4, 2] : [];
 
-  railwayPolygonLayers.forEach((id) => {
+  railwayLineLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      maplibreMap.setPaintProperty(id, 'line-dasharray', dashArray);
+    }
+  });
+};
+
+// --- 第 3 粒 Button: On/Off Layer ---
+const toggleRailwayLineVisibility = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  isLineLayerVisible.value = !isLineLayerVisible.value;
+  const visibility = isLineLayerVisible.value ? 'visible' : 'none';
+
+  railwayLineLayers.forEach((id) => {
     if (maplibreMap.getLayer(id)) {
       maplibreMap.setLayoutProperty(id, 'visibility', visibility);
     }
   });
 };
 
-const setRailwayPolygonMagenta = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
+// --- Zoom 20 時的七彩閃爍效果 ---
+const startRainbowFlashing = () => {
+  if (rainbowTimer) clearInterval(rainbowTimer);
 
-  isPolygonMagenta.value = !isPolygonMagenta.value;
-  const color = isPolygonMagenta.value ? '#ff00ff' : null;
+  const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#8b00ff', '#ff00ff'];
+  let colorIndex = 0;
 
-  railwayPolygonLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      if (color) {
-        maplibreMap.setPaintProperty(id, 'fill-color', color);
-      } else {
-        const orig = originalPolygonPaint[id];
-        if (orig && orig['fill-color']) {
-          maplibreMap.setPaintProperty(id, 'fill-color', orig['fill-color']);
+  rainbowTimer = setInterval(() => {
+    if (currentZoom.value === 20 && isLineLayerVisible.value) {
+      const maplibreMap = glLayer?.getMaplibreMap();
+      if (!maplibreMap) return;
+
+      const currentColor = colors[colorIndex];
+      colorIndex = (colorIndex + 1) % colors.length;
+
+      railwayLineLayers.forEach((id) => {
+        if (maplibreMap.getLayer(id)) {
+          maplibreMap.setPaintProperty(id, 'line-color', currentColor);
+          maplibreMap.setPaintProperty(id, 'line-width', 6);
         }
-      }
+      });
     }
-  });
+  }, 400);
 };
 
 // --- Marker 相關 ---
@@ -352,14 +343,6 @@ const loadMtrMarkers = () => {
   });
 };
 
-const toggleRailwayLayer = () => {
-  if (isRailwayVisible.value) {
-    loadMtrMarkers();
-  } else {
-    if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
-  }
-};
-
 const handleOrientation = (event) => {
   if (!isCompassActive.value || !glLayer) return;
   let heading = event.webkitCompassHeading !== undefined ? event.webkitCompassHeading : (event.alpha !== null ? 360 - event.alpha : null);
@@ -418,9 +401,11 @@ onMounted(async () => {
       });
     }
 
+    // 過濾掉 Polygon 鐵路圖層
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) return false;
+        if (layer.id.includes('TSPTPOLY')) return false;
         if (layer.type === 'symbol' && !railwayLineLayers.includes(layer.id)) return false;
         return true;
       });
@@ -499,9 +484,6 @@ onMounted(async () => {
         if (railwayLineLayers.includes(layer.id)) {
           originalLinePaint[layer.id] = JSON.parse(JSON.stringify(layer.paint));
         }
-        if (railwayPolygonLayers.includes(layer.id)) {
-          originalPolygonPaint[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        }
       }
     });
 
@@ -548,11 +530,12 @@ onMounted(async () => {
       maplibreMap.on('load', () => {
         updateMtrIconImage(maplibreMap, '#0055b8');
         loadMtrMarkers();
+        startRainbowFlashing();
       });
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Railway Lines & Polygons Control Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Updated Railway Lines & Zoom 20 Rainbow Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -560,6 +543,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (rainbowTimer) clearInterval(rainbowTimer);
   if (watchId) navigator.geolocation.clearWatch(watchId);
   window.removeEventListener('deviceorientation', handleOrientation);
   if (map) map.remove();
@@ -656,9 +640,9 @@ onUnmounted(() => {
 }
 
 .button-row button.active {
-  background: #ff00ff;
+  background: #008000;
   color: #fff;
-  border-color: #ff00ff;
+  border-color: #008000;
 }
 
 .compass-btn {
