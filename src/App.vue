@@ -20,16 +20,25 @@
         </div>
       </div>
 
-      <!-- 鐵路出入口圖層控制 -->
+      <!-- 鐵路 Line 格式控制面板 -->
       <div class="panel-group">
-        <span class="group-title">🚇 港鐵出入口 MARKER 圖層</span>
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
-          顯示 MTR 出入口 (Lv17-20)
-        </label>
-        <div class="button-row" style="margin-top: 6px;">
-          <button @click="toggleRailwayColor" :class="{ active: isTransportGreen }">
-            {{ isTransportGreen ? '🟢 運輸署綠色' : '🔵 MTR 經典藍' }}
+        <span class="group-title">🚆 鐵路線條 (Line) 控制</span>
+        <div class="button-row">
+          <button @click="setRailwayLineRedBold">🔴 變粗變紅</button>
+          <button @click="setRailwayLineDash">⚡ 虛線</button>
+          <button @click="resetRailwayLine">🔄 還原預設</button>
+        </div>
+      </div>
+
+      <!-- 鐵路 Polygon 格式控制面板 -->
+      <div class="panel-group">
+        <span class="group-title">🏢 鐵路多邊形 (Polygon) 控制</span>
+        <div class="button-row">
+          <button @click="toggleRailwayPolygonVisibility">
+            {{ isPolygonVisible ? '🙈 隱藏 Polygon' : '👁️ 顯示 Polygon' }}
+          </button>
+          <button @click="setRailwayPolygonMagenta" :class="{ active: isPolygonMagenta }">
+            🟣 紫紅色填滿
           </button>
         </div>
       </div>
@@ -62,7 +71,26 @@ const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
 const isRailwayVisible = ref(true);
-const isTransportGreen = ref(false);
+const isPolygonVisible = ref(true);
+const isPolygonMagenta = ref(false);
+
+const railwayLineLayers = [
+  'LV7-LV12/2_Railway/TSPTLINE_200K:11',
+  'Lv16/7_Railway/Tunnel/TSPTLINE_Tunnel_10K:1/TUN',
+  'Lv16/7_Railway/TSPTLINE_10K:2',
+  'Lv15/6_Railway/TSPTLINE_10K:1',
+  'Lv14/6_Railway/TSPTLINE_50K:30',
+  'Lv13/1_Railway/TSPTLINE_50K:4'
+];
+
+const railwayPolygonLayers = [
+  'Lv16/7_Railway/TSPTPOLY_10K:2/MTS, Underground',
+  'Lv16/7_Railway/TSPTPOLY_10K:2/MTS, Elevated, Over',
+  'Lv16/7_Railway/TSPTPOLY_10K:2/HSS, Underground'
+];
+
+let originalLinePaint = {};
+let originalPolygonPaint = {};
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -114,6 +142,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
+    if (railwayLineLayers.includes(layerId) || railwayPolygonLayers.includes(layerId)) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -142,7 +171,84 @@ const toggleTheme = (mode) => {
   });
 };
 
-// 動態建立 MTR 圓形標誌圖標
+// --- Railway Line 按鈕功能 ---
+const setRailwayLineRedBold = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  railwayLineLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      maplibreMap.setPaintProperty(id, 'line-color', '#ff0000');
+      maplibreMap.setPaintProperty(id, 'line-width', 5);
+      maplibreMap.setPaintProperty(id, 'line-dasharray', []); // 移除虛線
+    }
+  });
+};
+
+const setRailwayLineDash = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  railwayLineLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      maplibreMap.setPaintProperty(id, 'line-dasharray', [4, 2]);
+    }
+  });
+};
+
+const resetRailwayLine = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  railwayLineLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      const orig = originalLinePaint[id];
+      if (orig) {
+        if (orig['line-color']) maplibreMap.setPaintProperty(id, 'line-color', orig['line-color']);
+        if (orig['line-width']) maplibreMap.setPaintProperty(id, 'line-width', orig['line-width']);
+        maplibreMap.setPaintProperty(id, 'line-dasharray', orig['line-dasharray'] || []);
+      }
+    }
+  });
+};
+
+// --- Railway Polygon 按鈕功能 ---
+const toggleRailwayPolygonVisibility = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  isPolygonVisible.value = !isPolygonVisible.value;
+  const visibility = isPolygonVisible.value ? 'visible' : 'none';
+
+  railwayPolygonLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      maplibreMap.setLayoutProperty(id, 'visibility', visibility);
+    }
+  });
+};
+
+const setRailwayPolygonMagenta = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  isPolygonMagenta.value = !isPolygonMagenta.value;
+  const color = isPolygonMagenta.value ? '#ff00ff' : null;
+
+  railwayPolygonLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      if (color) {
+        maplibreMap.setPaintProperty(id, 'fill-color', color);
+      } else {
+        const orig = originalPolygonPaint[id];
+        if (orig && orig['fill-color']) {
+          maplibreMap.setPaintProperty(id, 'fill-color', orig['fill-color']);
+        }
+      }
+    }
+  });
+};
+
+// --- Marker 相關 ---
 const updateMtrIconImage = (maplibreMap, colorHex) => {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -172,9 +278,8 @@ const updateMtrIconImage = (maplibreMap, colorHex) => {
   } else {
     maplibreMap.addImage('mtr-logo-dynamic', imgData);
   }
-}
+};
 
-// 建立 Leaflet Marker 所需的 DivIcon
 const createMtrDivIcon = (colorHex) => {
   const L = window.L;
   return L.divIcon({
@@ -201,7 +306,6 @@ const createMtrDivIcon = (colorHex) => {
   });
 };
 
-// 掃描當前視圖中的 MTR 特徵並轉成 Leaflet L.marker
 const loadMtrMarkers = () => {
   if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
     if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
@@ -222,12 +326,12 @@ const loadMtrMarkers = () => {
   }
 
   const addedCoords = new Set();
-  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
+  const colorHex = '#0055b8';
   const icon = createMtrDivIcon(colorHex);
 
   features.forEach((feature) => {
     if (feature.geometry && feature.geometry.type === 'Point') {
-      const coords = feature.geometry.coordinates; // [lng, lat]
+      const coords = feature.geometry.coordinates;
       const latLngKey = `${coords[1].toFixed(5)},${coords[0].toFixed(5)}`;
       
       if (!addedCoords.has(latLngKey)) {
@@ -254,16 +358,6 @@ const toggleRailwayLayer = () => {
   } else {
     if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
   }
-};
-
-const toggleRailwayColor = () => {
-  isTransportGreen.value = !isTransportGreen.value;
-  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (maplibreMap) {
-    updateMtrIconImage(maplibreMap, colorHex);
-  }
-  loadMtrMarkers();
 };
 
 const handleOrientation = (event) => {
@@ -327,7 +421,7 @@ onMounted(async () => {
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) return false;
-        if (layer.type === 'symbol') return false;
+        if (layer.type === 'symbol' && !railwayLineLayers.includes(layer.id)) return false;
         return true;
       });
     }
@@ -368,7 +462,6 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 確保有設定有效 icon-image，這樣 MapLibre 才會順利繪製並被 queryRenderedFeatures 抓到
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-17',
       type: 'symbol',
@@ -378,7 +471,7 @@ onMounted(async () => {
       maxzoom: 19,
       layout: {
         'icon-image': 'mtr-logo-dynamic',
-        'icon-size': 0.01, // 設到極小，讓它在圖面上幾乎隱形，實際由 Leaflet L.marker 負責呈現與互動
+        'icon-size': 0.01,
         'icon-allow-overlap': true
       }
     });
@@ -403,6 +496,12 @@ onMounted(async () => {
       }
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        if (railwayLineLayers.includes(layer.id)) {
+          originalLinePaint[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        }
+        if (railwayPolygonLayers.includes(layer.id)) {
+          originalPolygonPaint[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        }
       }
     });
 
@@ -419,8 +518,6 @@ onMounted(async () => {
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     currentZoom.value = map.getZoom();
-
-    // 當地圖縮放或平移結束時，自動更新 L.marker
     map.on('zoomend moveend', () => {
       currentZoom.value = map.getZoom();
       loadMtrMarkers();
@@ -455,7 +552,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>L.marker + DivIcon Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Railway Lines & Polygons Control Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -499,7 +596,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 250px;
+  max-width: 260px;
 }
 
 .panel-group {
@@ -545,9 +642,9 @@ onUnmounted(() => {
   background: #f0f2f5;
   color: #222;
   border: 1px solid #dcdfe6;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -559,9 +656,9 @@ onUnmounted(() => {
 }
 
 .button-row button.active {
-  background: #008000;
+  background: #ff00ff;
   color: #fff;
-  border-color: #008000;
+  border-color: #ff00ff;
 }
 
 .compass-btn {
@@ -592,7 +689,7 @@ onUnmounted(() => {
   }
   .button-row button {
     padding: 5px 6px;
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 </style>
