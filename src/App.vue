@@ -186,6 +186,8 @@ const toggleCompass = async () => {
 // ----------------------------------------------------
 // 地圖初始化
 // ----------------------------------------------------
+// ... 前面程式碼保持不變 ...
+
 onMounted(async () => {
   const L = window.L;
   if (!L || !L.maplibreGL) return;
@@ -206,7 +208,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15;
+        basemapStyle.sources[key].maxzoom = 15; // 限制來源只到 Level 15
         delete basemapStyle.sources[key].url;
       });
     }
@@ -235,7 +237,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15
+          maxzoom: 15 // 限制標籤來源只到 Level 15，超過自動 Overzoom
         }
       },
       layers: [
@@ -258,7 +260,7 @@ onMounted(async () => {
       center: [22.3193, 114.1694],
       zoom: 15,
       minZoom: 7,
-      maxZoom: 19,
+      maxZoom: 19, // 允許 Leaflet 放大到 Level 19
       touchZoom: true,
       dragging: true
     });
@@ -284,12 +286,14 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>CSDI Vector Map Loaded!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom up to Level 19!').openPopup();
 
   } catch (error) {
     console.error('地圖載入失敗：', error);
   }
 });
+
+// ... 後面程式碼保持不變 ...
 
 onUnmounted(() => {
   if (watchId) navigator.geolocation.clearWatch(watchId);
