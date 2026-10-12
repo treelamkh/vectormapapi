@@ -199,9 +199,12 @@ onUnmounted(() => {
 #map-container {
   position: relative;
   width: 100vw;
+  /* 使用 dvh 相容手機瀏覽器動態工具欄 */
   height: 100vh;
+  height: 100dvh; 
   margin: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 #map {
@@ -212,15 +215,19 @@ onUnmounted(() => {
 
 .compass-btn {
   position: absolute;
-  bottom: 30px;
-  right: 20px;
+  /* 增加底部距離，並加入 iPhone / Android 底欄安全距離 (env) */
+  bottom: calc(60px + env(safe-area-inset-bottom));
+  right: 16px;
   z-index: 1000;
   background: #ffffff;
-  border: 1px solid #ccc;
+  color: #333333;
+  border: 1px solid rgba(0, 0, 0, 0.2);
   padding: 10px 16px;
-  border-radius: 20px;
-  font-weight: bold;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   cursor: pointer;
+  white-space: nowrap; /* 確保文字不會意外換行 */
 }
 </style>
