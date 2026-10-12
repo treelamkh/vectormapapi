@@ -170,7 +170,6 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    // 刪除 sprite 避免非同步載入錯誤
     delete basemapStyle.sprite;
     delete labelStyle.sprite;
 
@@ -180,6 +179,15 @@ onMounted(async () => {
         basemapStyle.sources[key].minzoom = 7;
         basemapStyle.sources[key].maxzoom = 14;
         delete basemapStyle.sources[key].url;
+      });
+    }
+
+    // 徹底清除底圖所有圖層的 icon-image
+    if (basemapStyle.layers) {
+      basemapStyle.layers.forEach((layer) => {
+        if (layer.layout) {
+          delete layer.layout['icon-image'];
+        }
       });
     }
 
@@ -193,6 +201,9 @@ onMounted(async () => {
     const labelLayers = labelStyle.layers || [];
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
+      if (layer.layout) {
+        delete layer.layout['icon-image'];
+      }
     });
 
     const mergedStyle = {
@@ -251,11 +262,9 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    // 使用載入真實透明圖片的方式攔截 styleimagemissing
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('styleimagemissing', (e) => {
-        // 建立一個 1x1 透明 PNG 的 Image 物件
         const img = new Image();
         img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
         img.onload = () => {
