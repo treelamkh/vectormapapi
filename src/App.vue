@@ -170,7 +170,6 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    // 移除 sprite 避免找不到圖標報錯
     delete basemapStyle.sprite;
     delete labelStyle.sprite;
 
@@ -180,15 +179,6 @@ onMounted(async () => {
         basemapStyle.sources[key].minzoom = 7;
         basemapStyle.sources[key].maxzoom = 14;
         delete basemapStyle.sources[key].url;
-      });
-    }
-
-    // 清除底圖所有圖層中的 icon-image，徹底解決 missing images 報錯
-    if (basemapStyle.layers) {
-      basemapStyle.layers.forEach((layer) => {
-        if (layer.layout) {
-          delete layer.layout['icon-image'];
-        }
       });
     }
 
@@ -202,9 +192,6 @@ onMounted(async () => {
     const labelLayers = labelStyle.layers || [];
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      if (layer.layout) {
-        delete layer.layout['icon-image'];
-      }
     });
 
     const mergedStyle = {
@@ -263,8 +250,24 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
+    // 核心修正：攔截並處理所有遺失的 sprite 圖標請求，徹底消除 Console 警告
+    const maplibreMap = glLayer.getMaplibreMap();
+    if (maplibreMap) {
+      maplibreMap.on('styleimagemissing', (e) => {
+        // 建立一個 1x1 的透明畫布作為替代圖標，防止報錯
+        const width = 1;
+        const height = 1;
+        const bytes = new Uint8Array(width * height * 4);
+        const image = { width, height, data: bytes };
+        
+        if (!maplibreMap.hasImage(e.id)) {
+          maplibreMap.addImage(e.id, image);
+        }
+      });
+    }
+
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Clean Vector Map Loaded!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Clean & Warning-Free Map!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
