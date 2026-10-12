@@ -39,7 +39,7 @@ const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0); // 記錄當前字體縮放倍率
 
-const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
+const API_KEY = '--';
 const LANG = 'tc';
 const isProd = import.meta.env.PROD;
 const CSDI_HOST = isProd 
