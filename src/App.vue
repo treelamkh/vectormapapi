@@ -37,9 +37,9 @@ let watchId = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
-const fontScaleMultiplier = ref(1.0); // 記錄當前字體縮放倍率
+const fontScaleMultiplier = ref(1.0);
 
-const API_KEY = '--';
+const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
 const isProd = import.meta.env.PROD;
 const CSDI_HOST = isProd 
@@ -52,19 +52,14 @@ const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
 const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
 
-// 原始樣式備份（用於字體大小基準計算與主題還原）
 let originalFontSizes = {};
 let originalColors = {};
 
-// ----------------------------------------------------
-// 功能 1 & 2：動態字體放大 / 縮小
-// ----------------------------------------------------
 const changeFontSize = (factor) => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
 
   fontScaleMultiplier.value *= factor;
-
   const style = maplibreMap.getStyle();
   if (!style || !style.layers) return;
 
@@ -85,9 +80,6 @@ const changeFontSize = (factor) => {
   });
 };
 
-// ----------------------------------------------------
-// 功能 3 & 4：切換 Dark Mode / Light Mode
-// ----------------------------------------------------
 const toggleTheme = (mode) => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -100,31 +92,29 @@ const toggleTheme = (mode) => {
     const layerId = layer.id;
 
     if (mode === 'dark') {
-      // 暗黑模式調色盤
       if (layer.type === 'background') {
         maplibreMap.setPaintProperty(layerId, 'background-color', '#12161f');
       } else if (layer.type === 'fill') {
         if (layerId.includes('water')) {
-          maplibreMap.setPaintProperty(layerId, 'fill-color', '#0e2a47'); // 水體
+          maplibreMap.setPaintProperty(layerId, 'fill-color', '#0e2a47');
         } else if (layerId.includes('park') || layerId.includes('green')) {
-          maplibreMap.setPaintProperty(layerId, 'fill-color', '#163321'); // 綠地
+          maplibreMap.setPaintProperty(layerId, 'fill-color', '#163321');
         } else if (layerId.includes('building')) {
-          maplibreMap.setPaintProperty(layerId, 'fill-color', '#252d3a'); // 建築
+          maplibreMap.setPaintProperty(layerId, 'fill-color', '#252d3a');
         } else {
-          maplibreMap.setPaintProperty(layerId, 'fill-color', '#1c2333'); // 陸地背景
+          maplibreMap.setPaintProperty(layerId, 'fill-color', '#1c2333');
         }
       } else if (layer.type === 'line') {
-        maplibreMap.setPaintProperty(layerId, 'line-color', '#2c374e'); // 道路/邊界
+        maplibreMap.setPaintProperty(layerId, 'line-color', '#2c374e');
       } else if (layer.type === 'symbol') {
         if (layer.paint && layer.paint['text-color']) {
-          maplibreMap.setPaintProperty(layerId, 'text-color', '#e0e6ed'); // 文字變白
+          maplibreMap.setPaintProperty(layerId, 'text-color', '#e0e6ed');
         }
         if (layer.paint && layer.paint['text-halo-color']) {
-          maplibreMap.setPaintProperty(layerId, 'text-halo-color', '#12161f'); // 文字外框變深
+          maplibreMap.setPaintProperty(layerId, 'text-halo-color', '#12161f');
         }
       }
     } else {
-      // 恢復原始 Light 模式顏色
       const orig = originalColors[layerId];
       if (orig) {
         Object.keys(orig).forEach((prop) => {
@@ -135,19 +125,9 @@ const toggleTheme = (mode) => {
   });
 };
 
-// ----------------------------------------------------
-// 指南針方向旋轉控制
-// ----------------------------------------------------
 const handleOrientation = (event) => {
   if (!isCompassActive.value || !glLayer) return;
-
-  let heading = null;
-  if (event.webkitCompassHeading !== undefined) {
-    heading = event.webkitCompassHeading;
-  } else if (event.alpha !== null) {
-    heading = 360 - event.alpha;
-  }
-
+  let heading = event.webkitCompassHeading !== undefined ? event.webkitCompassHeading : (event.alpha !== null ? 360 - event.alpha : null);
   if (heading !== null) {
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) maplibreMap.rotateTo(heading, { duration: 300 });
@@ -158,10 +138,8 @@ const toggleCompass = async () => {
   if (isCompassActive.value) {
     window.removeEventListener('deviceorientation', handleOrientation);
     if (watchId) navigator.geolocation.clearWatch(watchId);
-    
     const maplibreMap = glLayer?.getMaplibreMap();
     if (maplibreMap) maplibreMap.rotateTo(0, { duration: 500 });
-    
     isCompassActive.value = false;
     return;
   }
@@ -169,12 +147,9 @@ const toggleCompass = async () => {
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     try {
       const permission = await DeviceOrientationEvent.requestPermission();
-      if (permission !== 'granted') {
-        alert('請允許取用指南針方向權限');
-        return;
-      }
+      if (permission !== 'granted') return;
     } catch (error) {
-      console.error('指南針授權失敗:', error);
+      console.error(error);
       return;
     }
   }
@@ -182,11 +157,6 @@ const toggleCompass = async () => {
   window.addEventListener('deviceorientation', handleOrientation, true);
   isCompassActive.value = true;
 };
-
-// ----------------------------------------------------
-// 地圖初始化
-// ----------------------------------------------------
-// ... 前面程式碼保持不變 ...
 
 onMounted(async () => {
   const L = window.L;
@@ -201,16 +171,18 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    delete basemapStyle.sprite;
-    delete labelStyle.sprite;
-
+    // 保留並正確對應底圖的 Sprite 與 Glyphs 資源路徑
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 14; // 限制來源只到 Level 14
+        basemapStyle.sources[key].maxzoom = 14;
         delete basemapStyle.sources[key].url;
       });
+    }
+
+    if (basemapStyle.sprite) {
+      basemapStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/sprite?key=${API_KEY}`;
     }
 
     let labelStr = JSON.stringify(labelStyle);
@@ -230,6 +202,7 @@ onMounted(async () => {
 
     const mergedStyle = {
       version: 8,
+      sprite: basemapStyle.sprite,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
       sources: {
         ...basemapStyle.sources,
@@ -237,7 +210,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 14 // 限制標籤來源只到 Level 14，超過自動 Overzoom
+          maxzoom: 14
         }
       },
       layers: [
@@ -246,7 +219,6 @@ onMounted(async () => {
       ]
     };
 
-    // 備份初始文字大小與顏色
     mergedStyle.layers.forEach((layer) => {
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
@@ -258,9 +230,9 @@ onMounted(async () => {
 
     map = L.map('map', {
       center: [22.3193, 114.1694],
-      zoom: 14,
+      zoom: 15,
       minZoom: 7,
-      maxZoom: 19, // 允許 Leaflet 放大到 Level 19
+      maxZoom: 19,
       touchZoom: true,
       dragging: true
     });
@@ -270,11 +242,11 @@ onMounted(async () => {
       transformRequest: (url) => {
         let reqUrl = url;
         if (reqUrl.includes('/fonts/')) {
-          reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular');
-          reqUrl = reqUrl.replace(/Arial Regular/g, 'Noto Sans Regular');
-          reqUrl = reqUrl.replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold');
-          reqUrl = reqUrl.replace(/Arial Bold/g, 'Noto Sans Bold');
-          reqUrl = reqUrl.replace(/Arial/g, 'Noto%20Sans%20Regular');
+          reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular')
+                         .replace(/Arial Regular/g, 'Noto Sans Regular')
+                         .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
+                         .replace(/Arial Bold/g, 'Noto Sans Bold')
+                         .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
         if (reqUrl.includes('mapapi.geodata.gov.hk') && !reqUrl.includes('key=')) {
           reqUrl += (reqUrl.includes('?') ? '&' : '?') + `key=${API_KEY}`;
@@ -286,14 +258,12 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom up to Level 19!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Sprite Fixed & Ready!').openPopup();
 
   } catch (error) {
-    console.error('地圖載入失敗：', error);
+    console.error('載入失敗：', error);
   }
 });
-
-// ... 後面程式碼保持不變 ...
 
 onUnmounted(() => {
   if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -319,7 +289,6 @@ onUnmounted(() => {
   touch-action: none;
 }
 
-/* 左上角控制面板 */
 .control-panel {
   position: absolute;
   top: 12px;
@@ -378,7 +347,6 @@ onUnmounted(() => {
   border-color: #409eff;
 }
 
-/* 右下角指南針按鈕 */
 .compass-btn {
   position: absolute;
   bottom: calc(30px + env(safe-area-inset-bottom));
