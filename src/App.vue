@@ -170,10 +170,8 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    // 恢復官方 sprite 路徑
-    if (basemapStyle.sprite) {
-      basemapStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/sprite?key=${API_KEY}`;
-    }
+    // 刪除 sprite 避免非同步載入錯誤
+    delete basemapStyle.sprite;
     delete labelStyle.sprite;
 
     if (basemapStyle.sources) {
@@ -199,7 +197,6 @@ onMounted(async () => {
 
     const mergedStyle = {
       version: 8,
-      sprite: basemapStyle.sprite,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
       sources: {
         ...basemapStyle.sources,
@@ -254,21 +251,23 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
+    // 使用載入真實透明圖片的方式攔截 styleimagemissing
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('styleimagemissing', (e) => {
-        const width = 1;
-        const height = 1;
-        const bytes = new Uint8Array(width * height * 4);
-        const image = { width, height, data: bytes };
-        if (!maplibreMap.hasImage(e.id)) {
-          maplibreMap.addImage(e.id, image);
-        }
+        // 建立一個 1x1 透明 PNG 的 Image 物件
+        const img = new Image();
+        img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        img.onload = () => {
+          if (!maplibreMap.hasImage(e.id)) {
+            maplibreMap.addImage(e.id, img);
+          }
+        };
       });
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Flawless Vector Map!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>100% Clean Console!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
