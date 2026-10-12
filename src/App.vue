@@ -249,7 +249,7 @@ const createMtrDivIcon = (colorHex) => {
 };
 
 const loadMtrMarkers = () => {
-  if (!map || !isRailwayVisible.value || currentZoom.value < 15) { // 將 Marker 觸發門檻也提前至 15
+  if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
     if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
     return;
   }
@@ -258,7 +258,7 @@ const loadMtrMarkers = () => {
   if (!maplibreMap) return;
 
   const features = maplibreMap.queryRenderedFeatures({
-    layers: ['mtr-entrance-symbol-15', 'mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
+    layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
   });
 
   if (!mtrMarkersGroup) {
@@ -347,7 +347,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 16; // 允許來源預載入到 level 16
+        basemapStyle.sources[key].maxzoom = 20; // 允許 overzoom 到 level 20，防止超過 15 變成灰色空白
         delete basemapStyle.sources[key].url;
       });
     }
@@ -397,13 +397,13 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 將 RailwayEntrance 圖層的 minzoom 提早到 15，解決從 15 放大到 16 顯示不及的問題
+    // 恢復官方正確的 minzoom: 17
     mergedStyle.layers.push({
-      id: 'mtr-entrance-symbol-15',
+      id: 'mtr-entrance-symbol-17',
       type: 'symbol',
       source: firstSourceKey,
       'source-layer': '0_RailwayEntrance_5K:1',
-      minzoom: 15,
+      minzoom: 17,
       maxzoom: 19,
       layout: {
         'icon-image': 'mtr-logo-dynamic',
@@ -427,11 +427,6 @@ onMounted(async () => {
     });
 
     mergedStyle.layers.forEach((layer) => {
-      // 確保所有 RailwayEntrance 相關子圖層的 minzoom 都從 15 開始
-      if (layer.id.includes('RailwayEntrance_5K')) {
-        layer.minzoom = 15;
-      }
-
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -490,7 +485,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Zoom 15 Preload Fix Applied!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom 20 Fix Applied!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
