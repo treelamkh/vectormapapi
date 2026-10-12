@@ -20,16 +20,16 @@
         </div>
       </div>
 
-      <!-- 官方鐵路出入口圖層控制 -->
+      <!-- 鐵路出入口圖層控制 -->
       <div class="panel-group">
-        <span class="group-title">🚇 官方鐵路出入口圖層</span>
+        <span class="group-title">🚇 鐵路出入口點圖層</span>
         <label class="checkbox-label">
           <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
           顯示鐵路出入口 (Lv17-20)
         </label>
         <div class="button-row" style="margin-top: 6px;">
           <button @click="toggleRailwayColor" :class="{ active: isTransportGreen }">
-            {{ isTransportGreen ? '🟢 運輸署綠色' : '🎨 官方原色' }}
+            {{ isTransportGreen ? '🟢 運輸署綠色' : '🎨 預設藍色' }}
           </button>
         </div>
       </div>
@@ -62,8 +62,6 @@ const currentZoom = ref(15);
 
 const isRailwayVisible = ref(true);
 const isTransportGreen = ref(false);
-const railwayLayerIds = ref([]);
-let originalRailwayColors = {};
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -115,7 +113,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (railwayLayerIds.value.includes(layerId)) return;
+    if (layerId === 'safe-railway-circle-17' || layerId === 'safe-railway-circle-19') return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -149,11 +147,12 @@ const toggleRailwayLayer = () => {
   if (!maplibreMap) return;
 
   const visibility = isRailwayVisible.value ? 'visible' : 'none';
-  railwayLayerIds.value.forEach((layerId) => {
-    if (maplibreMap.getLayer(layerId)) {
-      maplibreMap.setLayoutProperty(layerId, 'visibility', visibility);
-    }
-  });
+  if (maplibreMap.getLayer('safe-railway-circle-17')) {
+    maplibreMap.setLayoutProperty('safe-railway-circle-17', 'visibility', visibility);
+  }
+  if (maplibreMap.getLayer('safe-railway-circle-19')) {
+    maplibreMap.setLayoutProperty('safe-railway-circle-19', 'visibility', visibility);
+  }
 };
 
 const toggleRailwayColor = () => {
@@ -161,28 +160,14 @@ const toggleRailwayColor = () => {
   if (!maplibreMap) return;
 
   isTransportGreen.value = !isTransportGreen.value;
+  const newColor = isTransportGreen.value ? '#008000' : '#1d70b8';
 
-  railwayLayerIds.value.forEach((layerId) => {
-    const layer = maplibreMap.getLayer(layerId);
-    if (!layer) return;
-
-    if (isTransportGreen.value) {
-      if (layer.type === 'fill') {
-        maplibreMap.setPaintProperty(layerId, 'fill-color', '#008000');
-      } else if (layer.type === 'line') {
-        maplibreMap.setPaintProperty(layerId, 'line-color', '#008000');
-      } else if (layer.type === 'circle') {
-        maplibreMap.setPaintProperty(layerId, 'circle-color', '#008000');
-      }
-    } else {
-      const orig = originalRailwayColors[layerId];
-      if (orig) {
-        Object.keys(orig).forEach((prop) => {
-          maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
-        });
-      }
-    }
-  });
+  if (maplibreMap.getLayer('safe-railway-circle-17')) {
+    maplibreMap.setPaintProperty('safe-railway-circle-17', 'circle-color', newColor);
+  }
+  if (maplibreMap.getLayer('safe-railway-circle-19')) {
+    maplibreMap.setPaintProperty('safe-railway-circle-19', 'circle-color', newColor);
+  }
 };
 
 const handleOrientation = (event) => {
@@ -243,21 +228,9 @@ onMounted(async () => {
       });
     }
 
-    const officialRailwayLayers = [];
     if (basemapStyle.layers) {
-      basemapStyle.layers.forEach((layer) => {
-        if (layer.id.includes('RailwayEntrance_5K')) {
-          railwayLayerIds.value.push(layer.id);
-          if (layer.layout) {
-            delete layer.layout['icon-image']; // 移除圖標相依避免崩潰
-          }
-          officialRailwayLayers.push(layer);
-        }
-      });
-
-      // 過濾掉其他有問題的 symbol 層，但保留我們剛才抓出來的 officialRailwayLayers
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
-        if (layer.id.includes('RailwayEntrance_5K')) return true;
+        if (layer.id.includes('RailwayEntrance_5K')) return false;
         if (layer.type === 'symbol') return false;
         return true;
       });
@@ -297,15 +270,46 @@ onMounted(async () => {
       ]
     };
 
+    const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
+
+    // 若它是 Point，用 circle 渲染 Lv17-18
+    mergedStyle.layers.push({
+      id: 'safe-railway-circle-17',
+      type: 'circle',
+      source: firstSourceKey,
+      'source-layer': '0_RailwayEntrance_5K:1',
+      minzoom: 17,
+      maxzoom: 19,
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#1d70b8',
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#ffffff'
+      }
+    });
+
+    // 若它是 Point，用 circle 渲染 Lv19-20
+    mergedStyle.layers.push({
+      id: 'safe-railway-circle-19',
+      type: 'circle',
+      source: firstSourceKey,
+      'source-layer': '0_RailwayEntrance_5K:2',
+      minzoom: 19,
+      maxzoom: 20,
+      paint: {
+        'circle-radius': 6,
+        'circle-color': '#1d70b8',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff'
+      }
+    });
+
     mergedStyle.layers.forEach((layer) => {
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        if (railwayLayerIds.value.includes(layer.id)) {
-          originalRailwayColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        }
       }
     });
 
@@ -347,7 +351,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Official Railway Layer Loaded Successfully!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Railway Point Circle Layer Active!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
