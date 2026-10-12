@@ -199,7 +199,7 @@ onMounted(async () => {
     const labelLayers = labelStyle.layers || [];
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      delete layer.maxzoom; // 移除圖層自身的 maxzoom 限制
+      delete layer.maxzoom;
       if (layer.layout) {
         delete layer.layout['icon-image'];
       }
@@ -214,7 +214,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 19 // 將標籤來源的 maxzoom 提高到 19，實現完美 Overzooming
+          maxzoom: 19
         }
       },
       layers: [
@@ -232,14 +232,19 @@ onMounted(async () => {
       }
     });
 
+    // 建立 Leaflet 地圖，並加入 Zoom 控制列
     map = L.map('map', {
       center: [22.3193, 114.1694],
       zoom: 15,
       minZoom: 7,
       maxZoom: 19,
       touchZoom: true,
-      dragging: true
+      dragging: true,
+      zoomControl: false // 關閉預設
     });
+
+    // 在右上角加入 Zoom (+ / -) 控制列
+    L.control.zoom({ position: 'topright' }).addTo(map);
 
     glLayer = L.maplibreGL({
       style: mergedStyle,
@@ -262,7 +267,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Labels visible up to zoom 19!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Zoom Control Added!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
