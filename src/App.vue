@@ -20,6 +20,20 @@
         </div>
       </div>
 
+      <!-- 鐵路出入口安全圖層控制 -->
+      <div class="panel-group">
+        <span class="group-title">🚇 鐵路出入口圖層</span>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
+          顯示鐵路出入口 (Lv17-20)
+        </label>
+        <div class="button-row" style="margin-top: 6px;">
+          <button @click="toggleRailwayColor" :class="{ active: isTransportGreen }">
+            {{ isTransportGreen ? '🟢 運輸署綠色' : '🎨 預設主題色' }}
+          </button>
+        </div>
+      </div>
+
       <!-- 當前 Zoom Level 顯示 -->
       <div class="panel-group">
         <span class="group-title">🔍 地圖層級</span>
@@ -45,6 +59,9 @@ const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
+
+const isRailwayVisible = ref(true);
+const isTransportGreen = ref(false);
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -96,6 +113,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
+    if (layerId === 'custom-railway-layer') return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -122,6 +140,25 @@ const toggleTheme = (mode) => {
       }
     }
   });
+};
+
+// 安全切換自訂鐵路圖層顯示
+const toggleRailwayLayer = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap || !maplibreMap.getLayer('custom-railway-layer')) return;
+
+  const visibility = isRailwayVisible.value ? 'visible' : 'none';
+  maplibreMap.setLayoutProperty('custom-railway-layer', 'visibility', visibility);
+};
+
+// 安全切換鐵路圖層顏色
+const toggleRailwayColor = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap || !maplibreMap.getLayer('custom-railway-layer')) return;
+
+  isTransportGreen.value = !isTransportGreen.value;
+  const newColor = isTransportGreen.value ? '#008000' : '#1d70b8';
+  maplibreMap.setPaintProperty('custom-railway-layer', 'circle-color', newColor);
 };
 
 const handleOrientation = (event) => {
@@ -182,10 +219,10 @@ onMounted(async () => {
       });
     }
 
-    // 徹底過濾掉所有會導致 Type 3 崩潰的 symbol 圖層及有問題的 railway 圖層
+    // 過濾掉所有會出錯的 symbol 與舊 railway 圖層
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
-        if (layer.id.includes('RailwayEntrance_5K')) return false; // 排除出錯的鐵路圖層
+        if (layer.id.includes('RailwayEntrance_5K')) return false;
         if (layer.type === 'symbol') return false;
         return true;
       });
@@ -224,6 +261,23 @@ onMounted(async () => {
         ...labelLayers
       ]
     };
+
+    // 手動安全加入一個自訂的鐵路出入口圖層（綁定在現有的 basemap source 上，專門在 zoom 17+ 顯示為圓點）
+    const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
+    mergedStyle.layers.push({
+      id: 'custom-railway-layer',
+      type: 'circle',
+      source: firstSourceKey,
+      'source-layer': '0_RailwayEntrance_5K:2', // 官方提供的高級數鐵路圖層 source-layer
+      minzoom: 17,
+      maxzoom: 20,
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#1d70b8',
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#ffffff'
+      }
+    });
 
     mergedStyle.layers.forEach((layer) => {
       if (layer.layout && layer.layout['text-size']) {
@@ -271,21 +325,8 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    const maplibreMap = glLayer.getMaplibreMap();
-    if (maplibreMap) {
-      maplibreMap.on('styleimagemissing', (e) => {
-        const img = new Image();
-        img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-        img.onload = () => {
-          if (!maplibreMap.hasImage(e.id)) {
-            maplibreMap.addImage(e.id, img);
-          }
-        };
-      });
-    }
-
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>100% Stable Map Up to Zoom 20!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Safe Custom Railway Layer Added!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -343,6 +384,16 @@ onUnmounted(() => {
   font-weight: 700;
   color: #666;
   text-transform: uppercase;
+}
+
+.checkbox-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .zoom-display {
