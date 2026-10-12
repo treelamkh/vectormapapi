@@ -13,22 +13,6 @@
       </div>
 
       <div class="panel-group">
-        <span class="group-title">🏢 建築物圖層</span>
-        <div class="button-row">
-          <button @click="setBuildingVisibility(true)">👁️ 顯示建築</button>
-          <button @click="setBuildingVisibility(false)">🙈 隱藏建築</button>
-        </div>
-      </div>
-
-      <div class="panel-group">
-        <span class="group-title">🛣️ 道路面圖層</span>
-        <div class="button-row">
-          <button @click="setRoadVisibility(true)">👁️ 顯示道路面</button>
-          <button @click="setRoadVisibility(false)">🙈 隱藏道路面</button>
-        </div>
-      </div>
-
-      <div class="panel-group">
         <span class="group-title">🎨 地圖主題</span>
         <div class="button-row">
           <button @click="toggleTheme('dark')" :class="{ active: currentTheme === 'dark' }">🌙 暗黑模式</button>
@@ -102,57 +86,7 @@ const changeFontSize = (factor) => {
 };
 
 // ----------------------------------------------------
-// 功能 3 & 4：開關建築物圖層 (All Building Layers)
-// ----------------------------------------------------
-const setBuildingVisibility = (visible) => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  const style = maplibreMap.getStyle();
-  if (!style || !style.layers) return;
-
-  style.layers.forEach((layer) => {
-    // 匹配 CSDI 建築物圖層關鍵字（如 building, structure, edb 等）
-    const layerId = layer.id.toLowerCase();
-    const sourceLayer = (layer['source-layer'] || '').toLowerCase();
-
-    if (
-      layerId.includes('building') ||
-      layerId.includes('structure') ||
-      sourceLayer.includes('building') ||
-      sourceLayer.includes('structure')
-    ) {
-      maplibreMap.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
-    }
-  });
-};
-
-// ----------------------------------------------------
-// 功能 5 & 6：開關道路面圖層 (All Road Polygon Layers)
-// ----------------------------------------------------
-const setRoadVisibility = (visible) => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  const style = maplibreMap.getStyle();
-  if (!style || !style.layers) return;
-
-  style.layers.forEach((layer) => {
-    const layerId = layer.id.toLowerCase();
-    const sourceLayer = (layer['source-layer'] || '').toLowerCase();
-
-    // 匹配道路面/路面多邊形圖層（如 road, carriageway, highway 等面圖層）
-    if (
-      (layerId.includes('road') || layerId.includes('carriageway') || sourceLayer.includes('road')) &&
-      layer.type === 'fill'
-    ) {
-      maplibreMap.setLayoutProperty(layer.id, 'visibility', visible ? 'visible' : 'none');
-    }
-  });
-};
-
-// ----------------------------------------------------
-// 功能 7 & 8：切換 Dark Mode / Light Mode
+// 功能 3 & 4：切換 Dark Mode / Light Mode
 // ----------------------------------------------------
 const toggleTheme = (mode) => {
   const maplibreMap = glLayer?.getMaplibreMap();
@@ -350,7 +284,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>CSDI Vector Map Dynamic Controls!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>CSDI Vector Map Loaded!').openPopup();
 
   } catch (error) {
     console.error('地圖載入失敗：', error);
@@ -395,7 +329,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 280px;
+  max-width: 240px;
 }
 
 .panel-group {
