@@ -347,7 +347,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 20; // 允許 overzoom 到 level 20，防止超過 15 變成灰色空白
+        basemapStyle.sources[key].maxzoom = 15; // 嚴格鎖定來源 maxzoom 為 15，防止請求不存在的 16+ 瓦片導致灰屏
         delete basemapStyle.sources[key].url;
       });
     }
@@ -386,7 +386,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 20
+          maxzoom: 15 // Label 來源同理鎖定在 15
         }
       },
       layers: [
@@ -397,7 +397,6 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 恢復官方正確的 minzoom: 17
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-17',
       type: 'symbol',
@@ -485,7 +484,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom 20 Fix Applied!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Strict Maxzoom 15 Overzoom Fix Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -596,7 +595,7 @@ onUnmounted(() => {
 
 .compass-btn {
   position: absolute;
-  bottom: calc(30px + env(safe-area-inset-bottom));
+  bottom: bottom calc(30px + env(safe-area-inset-bottom));
   right: 16px;
   z-index: 1000;
   background: #ffffff;
