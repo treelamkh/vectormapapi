@@ -22,7 +22,7 @@
 
       <!-- 鐵路出入口圖層控制 -->
       <div class="panel-group">
-        <span class="group-title">🚇 港鐵出入口 Marker 圖層</span>
+        <span class="group-title">🚇 港鐵出入口 MARKER 圖層</span>
         <label class="checkbox-label">
           <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
           顯示 MTR 出入口 (Lv17-20)
@@ -54,7 +54,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 let map = null;
 let glLayer = null;
 let watchId = null;
-let mtrMarkersGroup = null; // 用來管理所有 L.marker
+let mtrMarkersGroup = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -142,7 +142,39 @@ const toggleTheme = (mode) => {
   });
 };
 
-// 建立帶有 MTR Logo 的 Leaflet DivIcon
+// 動態建立 MTR 圓形標誌圖標
+const updateMtrIconImage = (maplibreMap, colorHex) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fillStyle = colorHex;
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(18, 32); ctx.lineTo(46, 32);
+  ctx.moveTo(24, 20); ctx.lineTo(40, 44);
+  ctx.moveTo(24, 44); ctx.lineTo(40, 20);
+  ctx.stroke();
+
+  const imgData = ctx.getImageData(0, 0, 64, 64);
+  if (maplibreMap.hasImage('mtr-logo-dynamic')) {
+    maplibreMap.updateImage('mtr-logo-dynamic', imgData);
+  } else {
+    maplibreMap.addImage('mtr-logo-dynamic', imgData);
+  }
+}
+
+// 建立 Leaflet Marker 所需的 DivIcon
 const createMtrDivIcon = (colorHex) => {
   const L = window.L;
   return L.divIcon({
@@ -169,7 +201,7 @@ const createMtrDivIcon = (colorHex) => {
   });
 };
 
-// 載入當前畫面視圖中的 MTR 出入口 Marker
+// 掃描當前視圖中的 MTR 特徵並轉成 Leaflet L.marker
 const loadMtrMarkers = () => {
   if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
     if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
@@ -179,7 +211,6 @@ const loadMtrMarkers = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
 
-  // 透過 MapLibre queryRenderedFeatures 直接抓取當前畫面上渲染的 MTR 特徵
   const features = maplibreMap.queryRenderedFeatures({
     layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
   });
@@ -227,7 +258,12 @@ const toggleRailwayLayer = () => {
 
 const toggleRailwayColor = () => {
   isTransportGreen.value = !isTransportGreen.value;
-  loadMtrMarkers(); // 重新整理 Marker 顏色
+  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (maplibreMap) {
+    updateMtrIconImage(maplibreMap, colorHex);
+  }
+  loadMtrMarkers();
 };
 
 const handleOrientation = (event) => {
@@ -332,7 +368,7 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 隱藏的 MapLibre 圖層（用來提供高效能資料來源供 L.marker 讀取）
+    // 確保有設定有效 icon-image，這樣 MapLibre 才會順利繪製並被 queryRenderedFeatures 抓到
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-17',
       type: 'symbol',
@@ -340,7 +376,11 @@ onMounted(async () => {
       'source-layer': '0_RailwayEntrance_5K:1',
       minzoom: 17,
       maxzoom: 19,
-      layout: { 'icon-image': '' }
+      layout: {
+        'icon-image': 'mtr-logo-dynamic',
+        'icon-size': 0.01, // 設到極小，讓它在圖面上幾乎隱形，實際由 Leaflet L.marker 負責呈現與互動
+        'icon-allow-overlap': true
+      }
     });
 
     mergedStyle.layers.push({
@@ -350,7 +390,11 @@ onMounted(async () => {
       'source-layer': '0_RailwayEntrance_5K:2',
       minzoom: 19,
       maxzoom: 20,
-      layout: { 'icon-image': '' }
+      layout: {
+        'icon-image': 'mtr-logo-dynamic',
+        'icon-size': 0.01,
+        'icon-allow-overlap': true
+      }
     });
 
     mergedStyle.layers.forEach((layer) => {
@@ -375,8 +419,9 @@ onMounted(async () => {
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     currentZoom.value = map.getZoom();
-    
-    map.on('zoom moveend', () => {
+
+    // 當地圖縮放或平移結束時，自動更新 L.marker
+    map.on('zoomend moveend', () => {
       currentZoom.value = map.getZoom();
       loadMtrMarkers();
     });
@@ -404,12 +449,13 @@ onMounted(async () => {
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('load', () => {
+        updateMtrIconImage(maplibreMap, '#0055b8');
         loadMtrMarkers();
       });
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Leaflet L.marker MTR Layer Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>L.marker + DivIcon Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -548,5 +594,3 @@ onUnmounted(() => {
     padding: 5px 6px;
     font-size: 11px;
   }
-}
-</style>
