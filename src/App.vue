@@ -155,14 +155,12 @@ const toggleRailwayLayer = () => {
   }
 };
 
-// 動態重新產生並更新 MTR Icon 顏色（藍色 vs 運輸署綠色）
 const updateMtrIconImage = (maplibreMap, colorHex) => {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
 
-  // 畫圓形背景
   ctx.beginPath();
   ctx.arc(32, 32, 28, 0, Math.PI * 2);
   ctx.fillStyle = colorHex;
@@ -171,7 +169,6 @@ const updateMtrIconImage = (maplibreMap, colorHex) => {
   ctx.strokeStyle = '#ffffff';
   ctx.stroke();
 
-  // 畫 MTR 標誌線條（簡化版港鐵軌道交匯符號）
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
@@ -300,7 +297,6 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
-    // 以 Symbol 類型加入 MTR Logo 圖標圖層 (Lv17-19)
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-17',
       type: 'symbol',
@@ -315,7 +311,6 @@ onMounted(async () => {
       }
     });
 
-    // 以 Symbol 類型加入 MTR Logo 圖標圖層 (Lv19-20)
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-19',
       type: 'symbol',
@@ -379,33 +374,40 @@ onMounted(async () => {
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('load', () => {
-        // 初始載入 MTR 經典藍 Logo
         updateMtrIconImage(maplibreMap, '#0055b8');
       });
 
-      // 點擊事件：彈出 Properties 屬性視窗
-      ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19'].forEach((layerId) => {
-        maplibreMap.on('click', layerId, (e) => {
-          if (!e.features || e.features.length === 0) return;
-          const feature = e.features[0];
-          const props = feature.properties;
-
-          // 組合 HTML 顯示所有 properties 屬性
-          let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto;">
-            <b style="color: #0055b8; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 4px 0;">`;
-          
-          for (const [key, val] of Object.entries(props)) {
-            htmlContent += `<div><b>${key}:</b> ${val}</div>`;
-          }
-          htmlContent += `</div>`;
-
-          new L.Popup()
-            .setLatLng([e.lngLat.lat, e.lngLat.lng])
-            .setContent(htmlContent)
-            .openOn(map);
+      // 改用更穩健的全局點擊查詢 (queryRenderedFeatures)
+      maplibreMap.on('click', (e) => {
+        const bbox = [
+          [e.point.x - 8, e.point.y - 8],
+          [e.point.x + 8, e.point.y + 8]
+        ];
+        const features = maplibreMap.queryRenderedFeatures(bbox, {
+          layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
         });
 
-        // 滑鼠移上去時游標變成手指指標
+        if (features.length === 0) return;
+
+        const feature = features[0];
+        const props = feature.properties;
+
+        let htmlContent = `<div style="font-family: sans-serif; max-height: 220px; overflow-y: auto; padding: 4px;">
+          <b style="color: #0055b8; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 6px 0;">`;
+        
+        for (const [key, val] of Object.entries(props)) {
+          htmlContent += `<div style="font-size: 12px; margin-bottom: 2px;"><b>${key}:</b> ${val}</div>`;
+        }
+        htmlContent += `</div>`;
+
+        new L.Popup()
+          .setLatLng([e.lngLat.lat, e.lngLat.lng])
+          .setContent(htmlContent)
+          .openOn(map);
+      });
+
+      // 滑鼠移到圖標上時變成手指指標
+      ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19'].forEach((layerId) => {
         maplibreMap.on('mouseenter', layerId, () => {
           maplibreMap.getCanvas().style.cursor = 'pointer';
         });
@@ -416,7 +418,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>MTR Logo & Clickable Properties Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Clickable MTR Logos Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
