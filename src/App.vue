@@ -2,7 +2,7 @@
   <div id="map-container">
     <div id="map"></div>
     
-    <!-- 右下角旋轉控制按鈕 -->
+    <!-- 右下角指南針旋轉按鈕 -->
     <button class="compass-btn" @click="toggleCompass">
       {{ isCompassActive ? '🧭 關閉追蹤方向' : '🧭 隨方向旋轉' }}
     </button>
@@ -25,39 +25,40 @@ const CSDI_HOST = isProd
   ? 'https://mapapi.geodata.gov.hk/gs/api' 
   : `${window.location.origin}/csdi-api`;
 
-// 處理指南針方向事件
+// 1. 底圖 API
+const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
+const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json?key=${API_KEY}`;
+
+// 2. 標籤 API
+const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
+const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
+
+// 處理手機指南針方向旋轉
 const handleOrientation = (event) => {
   if (!isCompassActive.value || !glLayer) return;
 
   let heading = null;
 
-  // iOS 裝置專用指南針角度 (0 = 正北)
   if (event.webkitCompassHeading !== undefined) {
-    heading = event.webkitCompassHeading;
-  } 
-  // Android / 其它瀏覽器 (alpha 為 0-360)
-  else if (event.alpha !== null) {
-    heading = 360 - event.alpha;
+    heading = event.webkitCompassHeading; // iOS 專用
+  } else if (event.alpha !== null) {
+    heading = 360 - event.alpha; // Android 專用
   }
 
   if (heading !== null) {
-    // 獲取 MapLibre 底層地圖實例
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
-      // 順暢旋轉地圖至當前方向
       maplibreMap.rotateTo(heading, { duration: 300 });
     }
   }
 };
 
-// 開啟/關閉指南針追蹤
+// 切換指南針追蹤狀態
 const toggleCompass = async () => {
   if (isCompassActive.value) {
-    // 關閉指南針
     window.removeEventListener('deviceorientation', handleOrientation);
     if (watchId) navigator.geolocation.clearWatch(watchId);
     
-    // 重設地圖回正北向上 (Bearing 0)
     const maplibreMap = glLayer?.getMaplibreMap();
     if (maplibreMap) maplibreMap.rotateTo(0, { duration: 500 });
     
@@ -65,7 +66,6 @@ const toggleCompass = async () => {
     return;
   }
 
-  // iOS 13+ 需要使用者手動授權 DeviceOrientation 權限
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     try {
       const permission = await DeviceOrientationEvent.requestPermission();
@@ -79,30 +79,113 @@ const toggleCompass = async () => {
     }
   }
 
-  // 監聽手機方向變化
   window.addEventListener('deviceorientation', handleOrientation, true);
   isCompassActive.value = true;
 };
 
 onMounted(async () => {
   const L = window.L;
-  if (!L || !L.maplibreGL) return;
+  if (!L || !L.maplibreGL) {
+    console.error('Leaflet 或 MapLibreGL 插件未成功載入');
+    return;
+  }
 
-  // ... (保留你原本合併 basemapStyle 與 labelStyle 的邏輯) ...
+  try {
+    // Fetch 底圖與標籤 Style
+    const [basemapRes, labelRes] = await Promise.all([
+      fetch(BASEMAP_STYLE_URL),
+      fetch(LABEL_STYLE_URL)
+    ]);
 
-  map = L.map('map', {
-    center: [22.3193, 114.1694],
-    zoom: 15,
-    touchZoom: true,
-    dragging: true
-  });
+    const basemapStyle = await basemapRes.json();
+    let labelStyle = await labelRes.json();
 
-  glLayer = L.maplibreGL({
-    style: mergedStyle,
-    transformRequest: (url) => { /* 保留原本 transformRequest 邏輯 */ }
-  });
+    delete basemapStyle.sprite;
+    delete labelStyle.sprite;
 
-  glLayer.addTo(map);
+    if (basemapStyle.sources) {
+      Object.keys(basemapStyle.sources).forEach((key) => {
+        basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
+        basemapStyle.sources[key].minzoom = 7;
+        basemapStyle.sources[key].maxzoom = 15;
+        delete basemapStyle.sources[key].url;
+      });
+    }
+
+    let labelStr = JSON.stringify(labelStyle);
+    labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
+    labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
+    labelStr = labelStr.replace(/Arial/g, 'Noto Sans Regular');
+    labelStyle = JSON.parse(labelStr);
+
+    const labelSourceKey = 'csdi-label-source';
+    const labelLayers = labelStyle.layers || [];
+    labelLayers.forEach((layer) => {
+      layer.source = labelSourceKey;
+      if (layer.layout && layer.layout['icon-image']) {
+        delete layer.layout['icon-image'];
+      }
+    });
+
+    // 宣告 mergedStyle 變數
+    const mergedStyle = {
+      version: 8,
+      glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
+      sources: {
+        ...basemapStyle.sources,
+        [labelSourceKey]: {
+          type: 'vector',
+          tiles: [LABEL_TILE_URL],
+          minzoom: 7,
+          maxzoom: 15
+        }
+      },
+      layers: [
+        ...(basemapStyle.layers || []),
+        ...labelLayers
+      ]
+    };
+
+    // 初始化 Leaflet Map
+    map = L.map('map', {
+      center: [22.3193, 114.1694],
+      zoom: 15,
+      minZoom: 7,
+      maxZoom: 19,
+      touchZoom: true,
+      dragging: true
+    });
+
+    // 載入 MapLibre GL 圖層
+    glLayer = L.maplibreGL({
+      style: mergedStyle,
+      transformRequest: (url) => {
+        let reqUrl = url;
+
+        if (reqUrl.includes('/fonts/')) {
+          reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular');
+          reqUrl = reqUrl.replace(/Arial Regular/g, 'Noto Sans Regular');
+          reqUrl = reqUrl.replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold');
+          reqUrl = reqUrl.replace(/Arial Bold/g, 'Noto Sans Bold');
+          reqUrl = reqUrl.replace(/Arial/g, 'Noto%20Sans%20Regular');
+        }
+
+        if (reqUrl.includes('mapapi.geodata.gov.hk') && !reqUrl.includes('key=')) {
+          reqUrl += (reqUrl.includes('?') ? '&' : '?') + `key=${API_KEY}`;
+        }
+
+        return { url: reqUrl };
+      }
+    });
+
+    glLayer.addTo(map);
+
+    const marker = L.marker([22.3193, 114.1694]).addTo(map);
+    marker.bindPopup('<b>香港特別行政區</b><br>CSDI Vector Map Loaded!').openPopup();
+
+  } catch (error) {
+    console.error('地圖載入失敗：', error);
+  }
 });
 
 onUnmounted(() => {
@@ -117,6 +200,8 @@ onUnmounted(() => {
   position: relative;
   width: 100vw;
   height: 100vh;
+  margin: 0;
+  padding: 0;
 }
 
 #map {
@@ -125,7 +210,6 @@ onUnmounted(() => {
   touch-action: none;
 }
 
-/* 浮動控制按鈕 */
 .compass-btn {
   position: absolute;
   bottom: 30px;
