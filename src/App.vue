@@ -22,7 +22,7 @@
 
       <!-- 鐵路出入口圖層控制 -->
       <div class="panel-group">
-        <span class="group-title">🚇 港鐵出入口圖標圖層</span>
+        <span class="group-title">🚇 港鐵出入口 Marker 圖層</span>
         <label class="checkbox-label">
           <input type="checkbox" v-model="isRailwayVisible" @change="toggleRailwayLayer" />
           顯示 MTR 出入口 (Lv17-20)
@@ -54,7 +54,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 let map = null;
 let glLayer = null;
 let watchId = null;
-let activePopupMarker = null; // 用來追蹤當前彈出的 Marker
+let mtrMarkersGroup = null; // 用來管理所有 L.marker
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -114,7 +114,6 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (layerId === 'mtr-entrance-symbol-17' || layerId === 'mtr-entrance-symbol-19') return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -143,57 +142,92 @@ const toggleTheme = (mode) => {
   });
 };
 
-const toggleRailwayLayer = () => {
+// 建立帶有 MTR Logo 的 Leaflet DivIcon
+const createMtrDivIcon = (colorHex) => {
+  const L = window.L;
+  return L.divIcon({
+    className: 'custom-mtr-marker',
+    html: `<div style="
+      background-color: ${colorHex};
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    ">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round">
+        <line x1="4" y1="12" x2="20" y2="12"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+        <line x1="6" y1="18" x2="18" y2="6"></line>
+      </svg>
+    </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+};
+
+// 載入當前畫面視圖中的 MTR 出入口 Marker
+const loadMtrMarkers = () => {
+  if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
+    if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
+    return;
+  }
+
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
 
-  const visibility = isRailwayVisible.value ? 'visible' : 'none';
-  if (maplibreMap.getLayer('mtr-entrance-symbol-17')) {
-    maplibreMap.setLayoutProperty('mtr-entrance-symbol-17', 'visibility', visibility);
+  // 透過 MapLibre queryRenderedFeatures 直接抓取當前畫面上渲染的 MTR 特徵
+  const features = maplibreMap.queryRenderedFeatures({
+    layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
+  });
+
+  if (!mtrMarkersGroup) {
+    mtrMarkersGroup = window.L.layerGroup().addTo(map);
+  } else {
+    mtrMarkersGroup.clearLayers();
   }
-  if (maplibreMap.getLayer('mtr-entrance-symbol-19')) {
-    maplibreMap.setLayoutProperty('mtr-entrance-symbol-19', 'visibility', visibility);
-  }
+
+  const addedCoords = new Set();
+  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
+  const icon = createMtrDivIcon(colorHex);
+
+  features.forEach((feature) => {
+    if (feature.geometry && feature.geometry.type === 'Point') {
+      const coords = feature.geometry.coordinates; // [lng, lat]
+      const latLngKey = `${coords[1].toFixed(5)},${coords[0].toFixed(5)}`;
+      
+      if (!addedCoords.has(latLngKey)) {
+        addedCoords.add(latLngKey);
+
+        const props = feature.properties;
+        let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto; padding: 4px;">
+          <b style="color: ${colorHex}; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 6px 0;">`;
+        for (const [key, val] of Object.entries(props)) {
+          htmlContent += `<div style="font-size: 12px; margin-bottom: 2px;"><b>${key}:</b> ${val}</div>`;
+        }
+        htmlContent += `</div>`;
+
+        const marker = window.L.marker([coords[1], coords[0]], { icon }).bindPopup(htmlContent);
+        mtrMarkersGroup.addLayer(marker);
+      }
+    }
+  });
 };
 
-const updateMtrIconImage = (maplibreMap, colorHex) => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-
-  ctx.beginPath();
-  ctx.arc(32, 32, 28, 0, Math.PI * 2);
-  ctx.fillStyle = colorHex;
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(18, 32); ctx.lineTo(46, 32);
-  ctx.moveTo(24, 20); ctx.lineTo(40, 44);
-  ctx.moveTo(24, 44); ctx.lineTo(40, 20);
-  ctx.stroke();
-
-  const imgData = ctx.getImageData(0, 0, 64, 64);
-  if (maplibreMap.hasImage('mtr-logo-dynamic')) {
-    maplibreMap.updateImage('mtr-logo-dynamic', imgData);
+const toggleRailwayLayer = () => {
+  if (isRailwayVisible.value) {
+    loadMtrMarkers();
   } else {
-    maplibreMap.addImage('mtr-logo-dynamic', imgData);
+    if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
   }
 };
 
 const toggleRailwayColor = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
   isTransportGreen.value = !isTransportGreen.value;
-  const colorHex = isTransportGreen.value ? '#008000' : '#0055b8';
-  updateMtrIconImage(maplibreMap, colorHex);
+  loadMtrMarkers(); // 重新整理 Marker 顏色
 };
 
 const handleOrientation = (event) => {
@@ -298,6 +332,7 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
+    // 隱藏的 MapLibre 圖層（用來提供高效能資料來源供 L.marker 讀取）
     mergedStyle.layers.push({
       id: 'mtr-entrance-symbol-17',
       type: 'symbol',
@@ -305,11 +340,7 @@ onMounted(async () => {
       'source-layer': '0_RailwayEntrance_5K:1',
       minzoom: 17,
       maxzoom: 19,
-      layout: {
-        'icon-image': 'mtr-logo-dynamic',
-        'icon-size': 0.5,
-        'icon-allow-overlap': true
-      }
+      layout: { 'icon-image': '' }
     });
 
     mergedStyle.layers.push({
@@ -319,11 +350,7 @@ onMounted(async () => {
       'source-layer': '0_RailwayEntrance_5K:2',
       minzoom: 19,
       maxzoom: 20,
-      layout: {
-        'icon-image': 'mtr-logo-dynamic',
-        'icon-size': 0.65,
-        'icon-allow-overlap': true
-      }
+      layout: { 'icon-image': '' }
     });
 
     mergedStyle.layers.forEach((layer) => {
@@ -348,8 +375,10 @@ onMounted(async () => {
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     currentZoom.value = map.getZoom();
-    map.on('zoom', () => {
+    
+    map.on('zoom moveend', () => {
       currentZoom.value = map.getZoom();
+      loadMtrMarkers();
     });
 
     glLayer = L.maplibreGL({
@@ -375,56 +404,12 @@ onMounted(async () => {
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('load', () => {
-        updateMtrIconImage(maplibreMap, '#0055b8');
-      });
-
-      // 點擊 MTR 圖標時，使用 Leaflet 原生 L.marker 與 Popup 顯示屬性
-      maplibreMap.on('click', (e) => {
-        const bbox = [
-          [e.point.x - 10, e.point.y - 10],
-          [e.point.x + 10, e.point.y + 10]
-        ];
-        const features = maplibreMap.queryRenderedFeatures(bbox, {
-          layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
-        });
-
-        if (features.length === 0) return;
-
-        const feature = features[0];
-        const props = feature.properties;
-        const coords = [e.lngLat.lat, e.lngLat.lng];
-
-        // 移除舊的 Marker 避免畫面堆疊
-        if (activePopupMarker) {
-          map.removeLayer(activePopupMarker);
-        }
-
-        // 建立你指定的 L.marker 方式
-        activePopupMarker = L.marker(coords).addTo(map);
-
-        let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto; padding: 4px;">
-          <b style="color: #0055b8; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 6px 0;">`;
-        
-        for (const [key, val] of Object.entries(props)) {
-          htmlContent += `<div style="font-size: 12px; margin-bottom: 2px;"><b>${key}:</b> ${val}</div>`;
-        }
-        htmlContent += `</div>`;
-
-        activePopupMarker.bindPopup(htmlContent).openPopup();
-      });
-
-      ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19'].forEach((layerId) => {
-        maplibreMap.on('mouseenter', layerId, () => {
-          maplibreMap.getCanvas().style.cursor = 'pointer';
-        });
-        maplibreMap.on('mouseleave', layerId, () => {
-          maplibreMap.getCanvas().style.cursor = '';
-        });
+        loadMtrMarkers();
       });
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>L.marker Popup Integration Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Leaflet L.marker MTR Layer Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
