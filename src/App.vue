@@ -46,7 +46,6 @@ const CSDI_HOST = isProd
   ? 'https://mapapi.geodata.gov.hk/gs/api' 
   : `${window.location.origin}/csdi-api`;
 
-// 1. 底圖與標籤 API
 const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
 const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json?key=${API_KEY}`;
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
@@ -171,7 +170,10 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    // 保留並正確對應底圖的 Sprite 與 Glyphs 資源路徑
+    // 移除 sprite 避免找不到圖標報錯
+    delete basemapStyle.sprite;
+    delete labelStyle.sprite;
+
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
@@ -181,8 +183,13 @@ onMounted(async () => {
       });
     }
 
-    if (basemapStyle.sprite) {
-      basemapStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/sprite?key=${API_KEY}`;
+    // 清除底圖所有圖層中的 icon-image，徹底解決 missing images 報錯
+    if (basemapStyle.layers) {
+      basemapStyle.layers.forEach((layer) => {
+        if (layer.layout) {
+          delete layer.layout['icon-image'];
+        }
+      });
     }
 
     let labelStr = JSON.stringify(labelStyle);
@@ -195,14 +202,13 @@ onMounted(async () => {
     const labelLayers = labelStyle.layers || [];
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      if (layer.layout && layer.layout['icon-image']) {
+      if (layer.layout) {
         delete layer.layout['icon-image'];
       }
     });
 
     const mergedStyle = {
       version: 8,
-      sprite: basemapStyle.sprite,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
       sources: {
         ...basemapStyle.sources,
@@ -258,7 +264,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Sprite Fixed & Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Clean Vector Map Loaded!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
