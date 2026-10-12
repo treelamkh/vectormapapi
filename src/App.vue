@@ -19,6 +19,12 @@
           <button @click="toggleTheme('light')" :class="{ active: currentTheme === 'light' }">☀️ 淺色模式</button>
         </div>
       </div>
+
+      <!-- 當前 Zoom Level 顯示 -->
+      <div class="panel-group">
+        <span class="group-title">🔍 地圖層級</span>
+        <div class="zoom-display">Zoom: <strong>{{ currentZoom }}</strong></div>
+      </div>
     </div>
 
     <!-- 右下角指南針旋轉按鈕 -->
@@ -38,6 +44,7 @@ let watchId = null;
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
+const currentZoom = ref(15); // 預設縮放級數
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -214,7 +221,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 19
+          maxzoom: 15
         }
       },
       layers: [
@@ -232,19 +239,25 @@ onMounted(async () => {
       }
     });
 
-    // 建立 Leaflet 地圖，並加入 Zoom 控制列
+    // 建立 Leaflet 地圖，maxZoom 解放至 20
     map = L.map('map', {
       center: [22.3193, 114.1694],
       zoom: 15,
       minZoom: 7,
-      maxZoom: 19,
+      maxZoom: 20, // 👈 解放至 LV20
       touchZoom: true,
       dragging: true,
-      zoomControl: false // 關閉預設
+      zoomControl: false
     });
 
-    // 在右上角加入 Zoom (+ / -) 控制列
+    // 加入右上角 Zoom 控制列
     L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // 即時監聽 Zoom Level 變更
+    currentZoom.value = map.getZoom();
+    map.on('zoom', () => {
+      currentZoom.value = map.getZoom();
+    });
 
     glLayer = L.maplibreGL({
       style: mergedStyle,
@@ -267,7 +280,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Zoom Control Added!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>MaxZoom Level 20 Unlocked!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -325,6 +338,16 @@ onUnmounted(() => {
   font-weight: 700;
   color: #666;
   text-transform: uppercase;
+}
+
+.zoom-display {
+  font-size: 13px;
+  color: #333;
+  background: #f0f2f5;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #dcdfe6;
+  text-align: center;
 }
 
 .button-row {
