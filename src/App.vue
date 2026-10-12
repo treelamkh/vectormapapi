@@ -20,7 +20,7 @@
         </div>
       </div>
 
-      <!-- 簡化的鐵路線條控制面板 -->
+      <!-- 鐵路線條控制面板 -->
       <div class="panel-group">
         <span class="group-title">🚆 鐵路線條 (Line) 控制</span>
         <div class="button-row">
@@ -62,7 +62,6 @@ const currentZoom = ref(15);
 
 const isRailwayVisible = ref(true);
 
-// 兩粒按鈕狀態
 const isLineLayerVisible = ref(true);
 const isRedBold = ref(false);
 
@@ -156,7 +155,6 @@ const toggleTheme = (mode) => {
   });
 };
 
-// --- 第 1 粒按鈕：Show / Unshow Railway Line Layer ---
 const toggleRailwayLineVisibility = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -171,7 +169,6 @@ const toggleRailwayLineVisibility = () => {
   });
 };
 
-// --- 第 2 粒按鈕：變粗變紅 / Resume Normal ---
 const toggleRailwayLineRedBold = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -194,7 +191,6 @@ const toggleRailwayLineRedBold = () => {
   });
 };
 
-// --- Marker 相關 ---
 const updateMtrIconImage = (maplibreMap, colorHex) => {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -253,7 +249,7 @@ const createMtrDivIcon = (colorHex) => {
 };
 
 const loadMtrMarkers = () => {
-  if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
+  if (!map || !isRailwayVisible.value || currentZoom.value < 15) { // 將 Marker 觸發門檻也提前至 15
     if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
     return;
   }
@@ -262,7 +258,7 @@ const loadMtrMarkers = () => {
   if (!maplibreMap) return;
 
   const features = maplibreMap.queryRenderedFeatures({
-    layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
+    layers: ['mtr-entrance-symbol-15', 'mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
   });
 
   if (!mtrMarkersGroup) {
@@ -351,12 +347,11 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15;
+        basemapStyle.sources[key].maxzoom = 16; // 允許來源預載入到 level 16
         delete basemapStyle.sources[key].url;
       });
     }
 
-    // 保留官方 style 中原生的 railway line 圖層，確保預設正常顯示
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) return false;
@@ -402,12 +397,13 @@ onMounted(async () => {
 
     const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
 
+    // 將 RailwayEntrance 圖層的 minzoom 提早到 15，解決從 15 放大到 16 顯示不及的問題
     mergedStyle.layers.push({
-      id: 'mtr-entrance-symbol-17',
+      id: 'mtr-entrance-symbol-15',
       type: 'symbol',
       source: firstSourceKey,
       'source-layer': '0_RailwayEntrance_5K:1',
-      minzoom: 17,
+      minzoom: 15,
       maxzoom: 19,
       layout: {
         'icon-image': 'mtr-logo-dynamic',
@@ -431,6 +427,11 @@ onMounted(async () => {
     });
 
     mergedStyle.layers.forEach((layer) => {
+      // 確保所有 RailwayEntrance 相關子圖層的 minzoom 都從 15 開始
+      if (layer.id.includes('RailwayEntrance_5K')) {
+        layer.minzoom = 15;
+      }
+
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -489,7 +490,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Simplified Railway Line Controls Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Zoom 15 Preload Fix Applied!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
