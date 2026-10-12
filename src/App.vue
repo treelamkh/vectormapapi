@@ -20,18 +20,15 @@
         </div>
       </div>
 
-      <!-- 鐵路線條控制面板 -->
+      <!-- 簡化的鐵路線條控制面板 -->
       <div class="panel-group">
         <span class="group-title">🚆 鐵路線條 (Line) 控制</span>
         <div class="button-row">
-          <button @click="toggleRailwayLineRedBold" :class="{ active: isRedBold }">
-            {{ isRedBold ? '🔴 取消粗紅' : '🔴 變粗變紅' }}
-          </button>
-          <button @click="toggleRailwayLineDash" :class="{ active: isDashed }">
-            {{ isDashed ? '⚡ 實線' : '⚡ 虛線' }}
-          </button>
           <button @click="toggleRailwayLineVisibility" :class="{ active: !isLineLayerVisible }">
-            {{ isLineLayerVisible ? '🙈 關閉 Layer' : '👁️ 開啟 Layer' }}
+            {{ isLineLayerVisible ? '🙈 Unshow Line' : '👁️ Show Line' }}
+          </button>
+          <button @click="toggleRailwayLineRedBold" :class="{ active: isRedBold }">
+            {{ isRedBold ? '🔄 Resume Normal' : '🔴 變粗變紅' }}
           </button>
         </div>
       </div>
@@ -57,7 +54,6 @@ let map = null;
 let glLayer = null;
 let watchId = null;
 let mtrMarkersGroup = null;
-let rainbowTimer = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -66,10 +62,9 @@ const currentZoom = ref(15);
 
 const isRailwayVisible = ref(true);
 
-// 鐵路線條按鈕狀態
-const isRedBold = ref(false);
-const isDashed = ref(false);
+// 兩粒按鈕狀態
 const isLineLayerVisible = ref(true);
+const isRedBold = ref(false);
 
 const railwayLineLayers = [
   'LV7-LV12/2_Railway/TSPTLINE_200K:11',
@@ -161,7 +156,22 @@ const toggleTheme = (mode) => {
   });
 };
 
-// --- 第 1 粒 Button: Enable/Disable 變粗變紅 ---
+// --- 第 1 粒按鈕：Show / Unshow Railway Line Layer ---
+const toggleRailwayLineVisibility = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  isLineLayerVisible.value = !isLineLayerVisible.value;
+  const visibility = isLineLayerVisible.value ? 'visible' : 'none';
+
+  railwayLineLayers.forEach((id) => {
+    if (maplibreMap.getLayer(id)) {
+      maplibreMap.setLayoutProperty(id, 'visibility', visibility);
+    }
+  });
+};
+
+// --- 第 2 粒按鈕：變粗變紅 / Resume Normal ---
 const toggleRailwayLineRedBold = () => {
   const maplibreMap = glLayer?.getMaplibreMap();
   if (!maplibreMap) return;
@@ -182,61 +192,6 @@ const toggleRailwayLineRedBold = () => {
       }
     }
   });
-};
-
-// --- 第 2 粒 Button: 虛線 / 實線切換 ---
-const toggleRailwayLineDash = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  isDashed.value = !isDashed.value;
-  const dashArray = isDashed.value ? [4, 2] : [];
-
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      maplibreMap.setPaintProperty(id, 'line-dasharray', dashArray);
-    }
-  });
-};
-
-// --- 第 3 粒 Button: On/Off Layer ---
-const toggleRailwayLineVisibility = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  isLineLayerVisible.value = !isLineLayerVisible.value;
-  const visibility = isLineLayerVisible.value ? 'visible' : 'none';
-
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      maplibreMap.setLayoutProperty(id, 'visibility', visibility);
-    }
-  });
-};
-
-// --- Zoom 20 時的七彩閃爍效果 ---
-const startRainbowFlashing = () => {
-  if (rainbowTimer) clearInterval(rainbowTimer);
-
-  const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#8b00ff', '#ff00ff'];
-  let colorIndex = 0;
-
-  rainbowTimer = setInterval(() => {
-    if (currentZoom.value === 20 && isLineLayerVisible.value) {
-      const maplibreMap = glLayer?.getMaplibreMap();
-      if (!maplibreMap) return;
-
-      const currentColor = colors[colorIndex];
-      colorIndex = (colorIndex + 1) % colors.length;
-
-      railwayLineLayers.forEach((id) => {
-        if (maplibreMap.getLayer(id)) {
-          maplibreMap.setPaintProperty(id, 'line-color', currentColor);
-          maplibreMap.setPaintProperty(id, 'line-width', 6);
-        }
-      });
-    }
-  }, 400);
 };
 
 // --- Marker 相關 ---
@@ -401,7 +356,7 @@ onMounted(async () => {
       });
     }
 
-    // 過濾掉 Polygon 鐵路圖層
+    // 保留官方 style 中原生的 railway line 圖層，確保預設正常顯示
     if (basemapStyle.layers) {
       basemapStyle.layers = basemapStyle.layers.filter((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) return false;
@@ -530,12 +485,11 @@ onMounted(async () => {
       maplibreMap.on('load', () => {
         updateMtrIconImage(maplibreMap, '#0055b8');
         loadMtrMarkers();
-        startRainbowFlashing();
       });
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Updated Railway Lines & Zoom 20 Rainbow Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Simplified Railway Line Controls Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -543,7 +497,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (rainbowTimer) clearInterval(rainbowTimer);
   if (watchId) navigator.geolocation.clearWatch(watchId);
   window.removeEventListener('deviceorientation', handleOrientation);
   if (map) map.remove();
