@@ -208,7 +208,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15; // 限制來源只到 Level 15
+        basemapStyle.sources[key].maxzoom = 14; // 限制來源只到 Level 14
         delete basemapStyle.sources[key].url;
       });
     }
@@ -237,7 +237,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15 // 限制標籤來源只到 Level 15，超過自動 Overzoom
+          maxzoom: 14 // 限制標籤來源只到 Level 14，超過自動 Overzoom
         }
       },
       layers: [
@@ -258,7 +258,7 @@ onMounted(async () => {
 
     map = L.map('map', {
       center: [22.3193, 114.1694],
-      zoom: 15,
+      zoom: 14,
       minZoom: 7,
       maxZoom: 19, // 允許 Leaflet 放大到 Level 19
       touchZoom: true,
