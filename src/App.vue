@@ -177,17 +177,17 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 14;
+        basemapStyle.sources[key].maxzoom = 15;
         delete basemapStyle.sources[key].url;
       });
     }
 
-    // 徹底清除底圖所有圖層的 icon-image
+    // 過濾掉底圖中所有會引發圖標錯誤或類型不支援的 symbol 圖層
     if (basemapStyle.layers) {
-      basemapStyle.layers.forEach((layer) => {
-        if (layer.layout) {
-          delete layer.layout['icon-image'];
-        }
+      basemapStyle.layers = basemapStyle.layers.filter((layer) => {
+        // 移除所有圖標符號圖層，只保留背景、填充與線條
+        if (layer.type === 'symbol') return false;
+        return true;
       });
     }
 
@@ -215,7 +215,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 14
+          maxzoom: 15
         }
       },
       layers: [
@@ -262,21 +262,8 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    const maplibreMap = glLayer.getMaplibreMap();
-    if (maplibreMap) {
-      maplibreMap.on('styleimagemissing', (e) => {
-        const img = new Image();
-        img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-        img.onload = () => {
-          if (!maplibreMap.hasImage(e.id)) {
-            maplibreMap.addImage(e.id, img);
-          }
-        };
-      });
-    }
-
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>100% Clean Console!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Clean & Stable Map!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
