@@ -170,7 +170,10 @@ onMounted(async () => {
     const basemapStyle = await basemapRes.json();
     let labelStyle = await labelRes.json();
 
-    delete basemapStyle.sprite;
+    // 恢復官方 sprite 路徑
+    if (basemapStyle.sprite) {
+      basemapStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/sprite?key=${API_KEY}`;
+    }
     delete labelStyle.sprite;
 
     if (basemapStyle.sources) {
@@ -196,6 +199,7 @@ onMounted(async () => {
 
     const mergedStyle = {
       version: 8,
+      sprite: basemapStyle.sprite,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
       sources: {
         ...basemapStyle.sources,
@@ -250,16 +254,13 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    // 核心修正：攔截並處理所有遺失的 sprite 圖標請求，徹底消除 Console 警告
     const maplibreMap = glLayer.getMaplibreMap();
     if (maplibreMap) {
       maplibreMap.on('styleimagemissing', (e) => {
-        // 建立一個 1x1 的透明畫布作為替代圖標，防止報錯
         const width = 1;
         const height = 1;
         const bytes = new Uint8Array(width * height * 4);
         const image = { width, height, data: bytes };
-        
         if (!maplibreMap.hasImage(e.id)) {
           maplibreMap.addImage(e.id, image);
         }
@@ -267,7 +268,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Clean & Warning-Free Map!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Flawless Vector Map!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
