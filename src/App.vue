@@ -243,13 +243,12 @@ onMounted(async () => {
       });
     }
 
-    // 萃取鐵路出入口圖層，並徹底清除 icon-image 避免找不到圖標崩潰
     if (basemapStyle.layers) {
       basemapStyle.layers.forEach((layer) => {
         if (layer.id.includes('RailwayEntrance_5K')) {
           railwayLayerIds.value.push(layer.id);
           if (layer.layout) {
-            delete layer.layout['icon-image']; // 移除找不到的圖標相依
+            delete layer.layout['icon-image'];
           }
         }
       });
@@ -357,7 +356,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Railway layers fixed!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Build Fixed Successfully!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -434,4 +433,67 @@ onUnmounted(() => {
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid #dcdfe6;
-  text-align
+  text-align: center;
+}
+
+.button-row {
+  display: flex;
+  gap: 6px;
+}
+
+.button-row button {
+  flex: 1;
+  background: #f0f2f5;
+  color: #222;
+  border: 1px solid #dcdfe6;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.button-row button:hover {
+  background: #e4e7ed;
+}
+
+.button-row button.active {
+  background: #008000;
+  color: #fff;
+  border-color: #008000;
+}
+
+.compass-btn {
+  position: absolute;
+  bottom: calc(30px + env(safe-area-inset-bottom));
+  right: 16px;
+  z-index: 1000;
+  background: #ffffff;
+  color: #333333;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 10px 16px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .control-panel {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    max-width: none;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .button-row button {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
+}
+</style>
