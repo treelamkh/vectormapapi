@@ -98,8 +98,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    // 略過 Label 圖層，保護文字顏色不受暗黑模式背景影響
-    if (layerId.includes('label') || layerId.includes('text')) return;
+    if (layerId.includes('label') || layerId.includes('text') || layerId.includes('Anno')) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -166,7 +165,6 @@ onMounted(async () => {
   if (!L || !L.maplibreGL) return;
 
   try {
-    // 1. 同時載入 Basemap 與 Label 樣式
     const [basemapRes, labelRes] = await Promise.all([
       fetch(BASEMAP_STYLE_URL),
       fetch(LABEL_STYLE_URL)
@@ -187,7 +185,6 @@ onMounted(async () => {
       });
     }
 
-    // 2. 處理 Label 字型相容性
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
     labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
@@ -196,11 +193,10 @@ onMounted(async () => {
 
     const labelSourceKey = 'csdi-label-source';
     const labelLayers = labelStyle.layers || [];
-
-    // 3. 完整將所有 Label 圖層（包含建築物名稱、地標、道路等）加入
+    
+    // 將所有 Label 圖層（包含 BuildingAnno 等大廈註解）精準對應到 label source
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      delete layer.maxzoom;
       if (layer.layout) {
         delete layer.layout['icon-image'];
       }
@@ -225,7 +221,10 @@ onMounted(async () => {
     };
 
     mergedStyle.layers.forEach((layer) => {
-      delete layer.maxzoom;
+      // 確保 BuildingAnno 等高階圖層可以正常放大顯示
+      if (!layer.id.includes('BuildingAnno')) {
+        delete layer.maxzoom;
+      }
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -272,7 +271,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Basemap + Full Labels Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>BuildingAnno Labels Integrated!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
