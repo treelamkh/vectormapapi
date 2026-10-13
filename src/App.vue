@@ -98,7 +98,7 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    // 略過 Label 相關圖層，避免文字顏色受影響
+    // 略過 Label 圖層，保護文字顏色不受暗黑模式背景影響
     if (layerId.includes('label') || layerId.includes('text')) return;
 
     if (mode === 'dark') {
@@ -166,6 +166,7 @@ onMounted(async () => {
   if (!L || !L.maplibreGL) return;
 
   try {
+    // 1. 同時載入 Basemap 與 Label 樣式
     const [basemapRes, labelRes] = await Promise.all([
       fetch(BASEMAP_STYLE_URL),
       fetch(LABEL_STYLE_URL)
@@ -186,7 +187,7 @@ onMounted(async () => {
       });
     }
 
-    // 處理 Label 字型相容性
+    // 2. 處理 Label 字型相容性
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
     labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
@@ -195,8 +196,8 @@ onMounted(async () => {
 
     const labelSourceKey = 'csdi-label-source';
     const labelLayers = labelStyle.layers || [];
-    
-    // 完整載入所有 Label 圖層並指定正確的 source
+
+    // 3. 完整將所有 Label 圖層（包含建築物名稱、地標、道路等）加入
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
       delete layer.maxzoom;
@@ -271,7 +272,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>All Labels Restored Successfully!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Basemap + Full Labels Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
