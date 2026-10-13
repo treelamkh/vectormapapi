@@ -4,6 +4,7 @@
 
     <!-- 左上角控制面板 -->
     <div class="control-panel">
+      <!-- 字體大小控制 -->
       <div class="panel-group">
         <span class="group-title">🔤 文字大小</span>
         <div class="button-row">
@@ -12,24 +13,12 @@
         </div>
       </div>
 
+      <!-- 地圖主題控制 -->
       <div class="panel-group">
         <span class="group-title">🎨 地圖主題</span>
         <div class="button-row">
           <button @click="toggleTheme('dark')" :class="{ active: currentTheme === 'dark' }">🌙 暗黑模式</button>
           <button @click="toggleTheme('light')" :class="{ active: currentTheme === 'light' }">☀️ 淺色模式</button>
-        </div>
-      </div>
-
-      <!-- 鐵路線條控制面板 -->
-      <div class="panel-group">
-        <span class="group-title">🚆 鐵路線條 (Line) 控制</span>
-        <div class="button-row">
-          <button @click="toggleRailwayLineVisibility" :class="{ active: !isLineLayerVisible }">
-            {{ isLineLayerVisible ? '🙈 Unshow Line' : '👁️ Show Line' }}
-          </button>
-          <button @click="toggleRailwayLineRedBold" :class="{ active: isRedBold }">
-            {{ isRedBold ? '🔄 Resume Normal' : '🔴 變粗變紅' }}
-          </button>
         </div>
       </div>
 
@@ -53,28 +42,11 @@ import { ref, onMounted, onUnmounted } from 'vue';
 let map = null;
 let glLayer = null;
 let watchId = null;
-let mtrMarkersGroup = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
-
-const isRailwayVisible = ref(true);
-
-const isLineLayerVisible = ref(true);
-const isRedBold = ref(false);
-
-const railwayLineLayers = [
-  'LV7-LV12/2_Railway/TSPTLINE_200K:11',
-  'Lv16/7_Railway/Tunnel/TSPTLINE_Tunnel_10K:1/TUN',
-  'Lv16/7_Railway/TSPTLINE_10K:2',
-  'Lv15/6_Railway/TSPTLINE_10K:1',
-  'Lv14/6_Railway/TSPTLINE_50K:30',
-  'Lv13/1_Railway/TSPTLINE_50K:4'
-];
-
-let originalLinePaint = {};
 
 const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
 const LANG = 'tc';
@@ -126,7 +98,6 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (railwayLineLayers.includes(layerId)) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -150,145 +121,6 @@ const toggleTheme = (mode) => {
         Object.keys(orig).forEach((prop) => {
           maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
         });
-      }
-    }
-  });
-};
-
-const toggleRailwayLineVisibility = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  isLineLayerVisible.value = !isLineLayerVisible.value;
-  const visibility = isLineLayerVisible.value ? 'visible' : 'none';
-
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      maplibreMap.setLayoutProperty(id, 'visibility', visibility);
-    }
-  });
-};
-
-const toggleRailwayLineRedBold = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  isRedBold.value = !isRedBold.value;
-
-  railwayLineLayers.forEach((id) => {
-    if (maplibreMap.getLayer(id)) {
-      if (isRedBold.value) {
-        maplibreMap.setPaintProperty(id, 'line-color', '#ff0000');
-        maplibreMap.setPaintProperty(id, 'line-width', 5);
-      } else {
-        const orig = originalLinePaint[id];
-        if (orig) {
-          if (orig['line-color']) maplibreMap.setPaintProperty(id, 'line-color', orig['line-color']);
-          if (orig['line-width']) maplibreMap.setPaintProperty(id, 'line-width', orig['line-width']);
-        }
-      }
-    }
-  });
-};
-
-const updateMtrIconImage = (maplibreMap, colorHex) => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-
-  ctx.beginPath();
-  ctx.arc(32, 32, 28, 0, Math.PI * 2);
-  ctx.fillStyle = colorHex;
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 5;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(18, 32); ctx.lineTo(46, 32);
-  ctx.moveTo(24, 20); ctx.lineTo(40, 44);
-  ctx.moveTo(24, 44); ctx.lineTo(40, 20);
-  ctx.stroke();
-
-  const imgData = ctx.getImageData(0, 0, 64, 64);
-  if (maplibreMap.hasImage('mtr-logo-dynamic')) {
-    maplibreMap.updateImage('mtr-logo-dynamic', imgData);
-  } else {
-    maplibreMap.addImage('mtr-logo-dynamic', imgData);
-  }
-};
-
-const createMtrDivIcon = (colorHex) => {
-  const L = window.L;
-  return L.divIcon({
-    className: 'custom-mtr-marker',
-    html: `<div style="
-      background-color: ${colorHex};
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      border: 2px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    ">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round">
-        <line x1="4" y1="12" x2="20" y2="12"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-        <line x1="6" y1="18" x2="18" y2="6"></line>
-      </svg>
-    </div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14]
-  });
-};
-
-const loadMtrMarkers = () => {
-  if (!map || !isRailwayVisible.value || currentZoom.value < 17) {
-    if (mtrMarkersGroup) mtrMarkersGroup.clearLayers();
-    return;
-  }
-
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  const features = maplibreMap.queryRenderedFeatures({
-    layers: ['mtr-entrance-symbol-17', 'mtr-entrance-symbol-19']
-  });
-
-  if (!mtrMarkersGroup) {
-    mtrMarkersGroup = window.L.layerGroup().addTo(map);
-  } else {
-    mtrMarkersGroup.clearLayers();
-  }
-
-  const addedCoords = new Set();
-  const colorHex = '#0055b8';
-  const icon = createMtrDivIcon(colorHex);
-
-  features.forEach((feature) => {
-    if (feature.geometry && feature.geometry.type === 'Point') {
-      const coords = feature.geometry.coordinates;
-      const latLngKey = `${coords[1].toFixed(5)},${coords[0].toFixed(5)}`;
-      
-      if (!addedCoords.has(latLngKey)) {
-        addedCoords.add(latLngKey);
-
-        const props = feature.properties;
-        let htmlContent = `<div style="font-family: sans-serif; max-height: 200px; overflow-y: auto; padding: 4px;">
-          <b style="color: ${colorHex}; font-size: 14px;">🚇 港鐵出入口資訊</b><hr style="margin: 6px 0;">`;
-        for (const [key, val] of Object.entries(props)) {
-          htmlContent += `<div style="font-size: 12px; margin-bottom: 2px;"><b>${key}:</b> ${val}</div>`;
-        }
-        htmlContent += `</div>`;
-
-        const marker = window.L.marker([coords[1], coords[0]], { icon }).bindPopup(htmlContent);
-        mtrMarkersGroup.addLayer(marker);
       }
     }
   });
@@ -347,29 +179,10 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15; // 嚴格鎖定來源 maxzoom 爲 15，防止超過 15 請求 404 導致地圖變灰
+        basemapStyle.sources[key].maxzoom = 15;
         delete basemapStyle.sources[key].url;
       });
     }
-
-    if (basemapStyle.layers) {
-    basemapStyle.layers = basemapStyle.layers.map((layer) => {
-        // 針對 RailwayEntrance_5K 圖層設定多段 zoom 顯示條件
-        if (layer.id.includes('RailwayEntrance_5K')) {
-            layer.filter = [
-                'any',
-                ['all', ['>=', ['zoom'], 11], ['<=', ['zoom'], 12]],
-                ['all', ['>=', ['zoom'], 18], ['<=', ['zoom'], 20]]
-            ];
-        }
-        return layer;
-    }).filter((layer) => {
-        // 保留其他不需要的過濾邏輯
-        if (layer.id.includes('TSPTPOLY')) return false;
-        if (layer.type === 'symbol' && !railwayLineLayers.includes(layer.id)) return false;
-        return true;
-    });
-}
 
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
@@ -396,7 +209,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15 // Label 來源同理鎖定在 15
+          maxzoom: 15
         }
       },
       layers: [
@@ -405,52 +218,13 @@ onMounted(async () => {
       ]
     };
 
-    const firstSourceKey = Object.keys(basemapStyle.sources)[0] || 'vector_tile_source';
-
-    mergedStyle.layers.push({
-      id: 'mtr-entrance-symbol-17',
-      type: 'symbol',
-      source: firstSourceKey,
-      'source-layer': '0_RailwayEntrance_5K:1',
-      minzoom: 17,
-      maxzoom: 19,
-      layout: {
-        'icon-image': 'mtr-logo-dynamic',
-        'icon-size': 0.01,
-        'icon-allow-overlap': true
-      }
-    });
-
-    mergedStyle.layers.push({
-      id: 'mtr-entrance-symbol-19',
-      type: 'symbol',
-      source: firstSourceKey,
-      'source-layer': '0_RailwayEntrance_5K:2',
-      minzoom: 19,
-      maxzoom: 20,
-      layout: {
-        'icon-image': 'mtr-logo-dynamic',
-        'icon-size': 0.01,
-        'icon-allow-overlap': true
-      }
-    });
-
     mergedStyle.layers.forEach((layer) => {
-      // 關鍵：將所有圖層（包含 railway line 等）的 maxzoom 解除限制或拉到 20，讓它們在 level 17+ 能夠透過 overzooming 繼續顯示
-      if (layer.maxzoom && layer.maxzoom > 15) {
-        // 保留原樣
-      } else {
-        delete layer.maxzoom; // 移除圖層本身的 maxzoom 限制，允許完美 overzoom 到 20
-      }
-
+      delete layer.maxzoom; // 允許完美過度放大
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        if (railwayLineLayers.includes(layer.id)) {
-          originalLinePaint[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        }
       }
     });
 
@@ -467,9 +241,8 @@ onMounted(async () => {
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     currentZoom.value = map.getZoom();
-    map.on('zoomend moveend', () => {
+    map.on('zoom', () => {
       currentZoom.value = map.getZoom();
-      loadMtrMarkers();
     });
 
     glLayer = L.maplibreGL({
@@ -492,16 +265,8 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    const maplibreMap = glLayer.getMaplibreMap();
-    if (maplibreMap) {
-      maplibreMap.on('load', () => {
-        updateMtrIconImage(maplibreMap, '#0055b8');
-        loadMtrMarkers();
-      });
-    }
-
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom Layer Maxzoom Fix Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Clean Basemap & Label Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -545,7 +310,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 260px;
+  max-width: 250px;
 }
 
 .panel-group {
@@ -559,16 +324,6 @@ onUnmounted(() => {
   font-weight: 700;
   color: #666;
   text-transform: uppercase;
-}
-
-.checkbox-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #333;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
 }
 
 .zoom-display {
@@ -591,9 +346,9 @@ onUnmounted(() => {
   background: #f0f2f5;
   color: #222;
   border: 1px solid #dcdfe6;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -638,7 +393,7 @@ onUnmounted(() => {
   }
   .button-row button {
     padding: 5px 6px;
-    font-size: 10px;
+    font-size: 11px;
   }
 }
 </style>
