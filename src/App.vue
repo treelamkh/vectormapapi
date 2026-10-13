@@ -347,7 +347,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 16; // 將 source maxzoom 設為 16，確保 Lv16 的 railway line 正常載入，並可 overzoom 到 20
+        basemapStyle.sources[key].maxzoom = 15; // 嚴格鎖定來源 maxzoom 爲 15，防止超過 15 請求 404 導致地圖變灰
         delete basemapStyle.sources[key].url;
       });
     }
@@ -386,7 +386,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 16
+          maxzoom: 15 // Label 來源同理鎖定在 15
         }
       },
       layers: [
@@ -426,6 +426,13 @@ onMounted(async () => {
     });
 
     mergedStyle.layers.forEach((layer) => {
+      // 關鍵：將所有圖層（包含 railway line 等）的 maxzoom 解除限制或拉到 20，讓它們在 level 17+ 能夠透過 overzooming 繼續顯示
+      if (layer.maxzoom && layer.maxzoom > 15) {
+        // 保留原樣
+      } else {
+        delete layer.maxzoom; // 移除圖層本身的 maxzoom 限制，允許完美 overzoom 到 20
+      }
+
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -484,7 +491,7 @@ onMounted(async () => {
     }
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Source Maxzoom 16 Fix Ready!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Overzoom Layer Maxzoom Fix Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
