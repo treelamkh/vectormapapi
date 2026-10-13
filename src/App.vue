@@ -353,13 +353,23 @@ onMounted(async () => {
     }
 
     if (basemapStyle.layers) {
-      basemapStyle.layers = basemapStyle.layers.filter((layer) => {
-        if (layer.id.includes('RailwayEntrance_5K')) return false;
+    basemapStyle.layers = basemapStyle.layers.map((layer) => {
+        // 針對 RailwayEntrance_5K 圖層設定多段 zoom 顯示條件
+        if (layer.id.includes('RailwayEntrance_5K')) {
+            layer.filter = [
+                'any',
+                ['all', ['>=', ['zoom'], 11], ['<=', ['zoom'], 12]],
+                ['all', ['>=', ['zoom'], 18], ['<=', ['zoom'], 20]]
+            ];
+        }
+        return layer;
+    }).filter((layer) => {
+        // 保留其他不需要的過濾邏輯
         if (layer.id.includes('TSPTPOLY')) return false;
         if (layer.type === 'symbol' && !railwayLineLayers.includes(layer.id)) return false;
         return true;
-      });
-    }
+    });
+}
 
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
