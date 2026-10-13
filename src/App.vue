@@ -98,6 +98,8 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
+    // 略過 Label 相關圖層，避免文字填色被錯誤覆蓋
+    if (layerId.includes('building-label') || layerId.includes('label')) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -164,6 +166,7 @@ onMounted(async () => {
   if (!L || !L.maplibreGL) return;
 
   try {
+    // 1. 同時載入 Basemap 與 Label 樣式
     const [basemapRes, labelRes] = await Promise.all([
       fetch(BASEMAP_STYLE_URL),
       fetch(LABEL_STYLE_URL)
@@ -184,6 +187,7 @@ onMounted(async () => {
       });
     }
 
+    // 2. 處理 Label 樣式中的字型相容性與來源綁定
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
     labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
@@ -191,15 +195,22 @@ onMounted(async () => {
     labelStyle = JSON.parse(labelStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const labelLayers = labelStyle.layers || [];
-    labelLayers.forEach((layer) => {
+    const allLabelLayers = labelStyle.layers || [];
+
+    // 3. 【關鍵篩選】只取出 ID 包含 "Building"（不分大小寫）的 Label 圖層
+    const buildingLabelLayers = allLabelLayers.filter(layer => 
+      layer.id && layer.id.toLowerCase().includes('building')
+    );
+
+    buildingLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
       delete layer.maxzoom;
       if (layer.layout) {
-        delete layer.layout['icon-image'];
+        delete layer.layout['icon-image']; // 確保只顯示文字 Label
       }
     });
 
+    // 4. 合併 Basemap 圖層與篩選出來的 Building Label 圖層
     const mergedStyle = {
       version: 8,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
@@ -214,12 +225,12 @@ onMounted(async () => {
       },
       layers: [
         ...(basemapStyle.layers || []),
-        ...labelLayers
+        ...buildingLabelLayers
       ]
     };
 
     mergedStyle.layers.forEach((layer) => {
-      delete layer.maxzoom; // 允許完美過度放大
+      delete layer.maxzoom; // 允許過度放大
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -265,8 +276,8 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Clean Basemap & Label Ready!').openPopup();
+    //const marker = L.marker([22.3193, 114.1694]).addTo(map);
+    //marker.bindPopup('<b>香港特別行政區</b><br>Basemap + Building Labels Ready!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
