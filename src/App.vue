@@ -98,7 +98,8 @@ const toggleTheme = (mode) => {
 
   style.layers.forEach((layer) => {
     const layerId = layer.id;
-    if (layerId.includes('building') || layerId.includes('label')) return;
+    // 略過 Label 相關圖層，避免文字顏色受影響
+    if (layerId.includes('label') || layerId.includes('text')) return;
 
     if (mode === 'dark') {
       if (layer.type === 'background') {
@@ -185,6 +186,7 @@ onMounted(async () => {
       });
     }
 
+    // 處理 Label 字型相容性
     let labelStr = JSON.stringify(labelStyle);
     labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
     labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
@@ -192,14 +194,10 @@ onMounted(async () => {
     labelStyle = JSON.parse(labelStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const allLabelLayers = labelStyle.layers || [];
-
-    // 篩選包含 "building" 的 Label 圖層
-    const buildingLabelLayers = allLabelLayers.filter(layer => 
-      layer.id && layer.id.toLowerCase().includes('building')
-    );
-
-    buildingLabelLayers.forEach((layer) => {
+    const labelLayers = labelStyle.layers || [];
+    
+    // 完整載入所有 Label 圖層並指定正確的 source
+    labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
       delete layer.maxzoom;
       if (layer.layout) {
@@ -207,7 +205,6 @@ onMounted(async () => {
       }
     });
 
-    // 建立合併的 Style，並【完整加入 label source】
     const mergedStyle = {
       version: 8,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
@@ -222,7 +219,7 @@ onMounted(async () => {
       },
       layers: [
         ...(basemapStyle.layers || []),
-        ...buildingLabelLayers
+        ...labelLayers
       ]
     };
 
@@ -273,8 +270,8 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    //const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    //marker.bindPopup('<b>香港特別行政區</b><br>Basemap + Building Labels Restored!').openPopup();
+    const marker = L.marker([22.3193, 114.1694]).addTo(map);
+    marker.bindPopup('<b>香港特別行政區</b><br>All Labels Restored Successfully!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
