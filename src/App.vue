@@ -176,7 +176,6 @@ onMounted(async () => {
     delete basemapStyle.sprite;
     delete labelStyle.sprite;
 
-    // 嚴格限制底圖來源 maxzoom 為 15（避免超過 15 請求 404）
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
@@ -197,6 +196,10 @@ onMounted(async () => {
     
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
+      // 適度放寬 minzoom 門檻，確保高階級數時標籤不會被意外過濾
+      if (layer.minzoom && layer.minzoom > 16 && !layer.id.includes('BuildingAnno')) {
+        layer.minzoom = 16;
+      }
       if (layer.layout) {
         delete layer.layout['icon-image'];
       }
@@ -211,7 +214,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 20 // 【關鍵修正】將標籤來源的 maxzoom 釋放到 20，讓 BuildingAnno 可以成功請求高階圖塊！
+          maxzoom: 20
         }
       },
       layers: [
@@ -221,7 +224,6 @@ onMounted(async () => {
     };
 
     mergedStyle.layers.forEach((layer) => {
-      // 確保非 BuildingAnno 圖層移除限制，而 BuildingAnno 保持其官方定義的高 zoom 顯示
       if (!layer.id.includes('BuildingAnno')) {
         delete layer.maxzoom;
       }
@@ -270,8 +272,15 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
+    // 【新增】將 MapLibre 實例掛載至全域變數 window.debugMap 供 F12 檢測
+    glLayer.on('load', () => {
+      const maplibreMap = glLayer.getMaplibreMap();
+      window.debugMap = maplibreMap;
+      console.log("=== DebugMap Ready ===", window.debugMap);
+    });
+
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>BuildingAnno Source Maxzoom Fixed!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>DebugMap Enabled!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
