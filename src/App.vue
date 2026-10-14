@@ -192,14 +192,13 @@ onMounted(async () => {
     labelStyle = JSON.parse(labelStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const labelLayers = labelStyle.layers || [];
+    const allLabelLayers = labelStyle.layers || [];
     
-    labelLayers.forEach((layer) => {
+    // 【核心修復】只保留 type === 'symbol'（純文字標籤）的圖層，完美過濾掉引起崩潰的 Polygon/Line 圖層
+    const symbolLabelLayers = allLabelLayers.filter(layer => layer.type === 'symbol');
+
+    symbolLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      // 適度放寬 minzoom 門檻，確保高階級數時標籤不會被意外過濾
-      if (layer.minzoom && layer.minzoom > 16 && !layer.id.includes('BuildingAnno')) {
-        layer.minzoom = 16;
-      }
       if (layer.layout) {
         delete layer.layout['icon-image'];
       }
@@ -219,7 +218,7 @@ onMounted(async () => {
       },
       layers: [
         ...(basemapStyle.layers || []),
-        ...labelLayers
+        ...symbolLabelLayers
       ]
     };
 
@@ -272,15 +271,13 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    // 【新增】將 MapLibre 實例掛載至全域變數 window.debugMap 供 F12 檢測
     glLayer.on('load', () => {
-      const maplibreMap = glLayer.getMaplibreMap();
-      window.debugMap = maplibreMap;
-      console.log("=== DebugMap Ready ===", window.debugMap);
+      window.debugMap = glLayer.getMaplibreMap();
+      console.log("=== DebugMap Ready (Symbol Layers Only) ===", window.debugMap);
     });
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>DebugMap Enabled!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Symbol Layers Filtered Successfully!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
