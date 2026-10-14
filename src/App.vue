@@ -176,6 +176,7 @@ onMounted(async () => {
     delete basemapStyle.sprite;
     delete labelStyle.sprite;
 
+    // 嚴格限制底圖來源 maxzoom 為 15（避免超過 15 請求 404）
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
@@ -194,7 +195,6 @@ onMounted(async () => {
     const labelSourceKey = 'csdi-label-source';
     const labelLayers = labelStyle.layers || [];
     
-    // 將所有 Label 圖層（包含 BuildingAnno 等大廈註解）精準對應到 label source
     labelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
       if (layer.layout) {
@@ -211,7 +211,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15
+          maxzoom: 20 // 【關鍵修正】將標籤來源的 maxzoom 釋放到 20，讓 BuildingAnno 可以成功請求高階圖塊！
         }
       },
       layers: [
@@ -221,7 +221,7 @@ onMounted(async () => {
     };
 
     mergedStyle.layers.forEach((layer) => {
-      // 確保 BuildingAnno 等高階圖層可以正常放大顯示
+      // 確保非 BuildingAnno 圖層移除限制，而 BuildingAnno 保持其官方定義的高 zoom 顯示
       if (!layer.id.includes('BuildingAnno')) {
         delete layer.maxzoom;
       }
@@ -271,7 +271,7 @@ onMounted(async () => {
     glLayer.addTo(map);
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>BuildingAnno Labels Integrated!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>BuildingAnno Source Maxzoom Fixed!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
