@@ -9,7 +9,7 @@
         <span class="group-title">🔤 文字大小</span>
         <div class="button-row">
           <button @click="changeFontSize(1.15)">🔤 字體 +</button>
-          <button @click="changeFontSize(0.85)">🔠 字體 -</button>
+          <button @click="changeFontSize(0.85)">🔤 字體 -</button>
         </div>
       </div>
 
@@ -27,6 +27,15 @@
         <span class="group-title">🔍 地圖層級</span>
         <div class="zoom-display">Zoom: <strong>{{ currentZoom }}</strong></div>
       </div>
+
+      <!-- 【Debug 工具】Tile 網格與 Pbf 網址視覺化開關 -->
+      <div class="panel-group">
+        <span class="group-title">🛠️ Debug 工具</span>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
+          顯示 Tile 邊界與 PBF 網址
+        </label>
+      </div>
     </div>
 
     <!-- 右下角指南針旋轉按鈕 -->
@@ -42,23 +51,25 @@ import { ref, onMounted, onUnmounted } from 'vue';
 let map = null;
 let glLayer = null;
 let watchId = null;
+let tileDebugLayerGroup = null;
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
-const API_KEY = 'b35fa889d114486a90ea5133d5ff3ce4';
+const showTileGridDebug = ref(false);
+
 const LANG = 'tc';
 const isProd = import.meta.env.PROD;
 const CSDI_HOST = isProd 
   ? 'https://mapapi.geodata.gov.hk/gs/api' 
   : `${window.location.origin}/csdi-api`;
 
-const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/HK80/resources/styles/root.json?key=${API_KEY}`;
-const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?key=${API_KEY}`;
-const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json?key=${API_KEY}`;
+const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf`;
+const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json`;
+const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?`;
+const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json`;
 
 let originalFontSizes = {};
 let originalColors = {};
@@ -127,6 +138,77 @@ const toggleTheme = (mode) => {
   });
 };
 
+// --- 數學工具：將 XYZ Tile 轉換為經緯度邊界 ---
+const tile2bound = (x, y, z) => {
+  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z);
+  const lat2 = (180 / Math.PI) * Math.atan(Math.sinh(n));
+  const lon2 = (x / Math.pow(2, z)) * 360 - 180;
+  
+  const n2 = Math.PI - (2 * Math.PI * (y + 1)) / Math.pow(2, z);
+  const lat1 = (180 / Math.PI) * Math.atan(Math.sinh(n2));
+  const lon1 = ((x + 1) / Math.pow(2, z)) * 360 - 180;
+
+  return [[lat1, lon1], [lat2, lon2]];
+};
+
+// --- 更新畫面上的 Tile 紅框與網址 ---
+const updateTileGridOverlay = () => {
+  if (!map || !tileDebugLayerGroup) return;
+  tileDebugLayerGroup.clearLayers();
+
+  if (!showTileGridDebug.value) return;
+
+  const bounds = map.getBounds();
+  const zoom = map.getZoom();
+  const z = Math.floor(zoom);
+
+  if (z < 7 || z > 20) return;
+
+  const minLat = bounds.getSouth();
+  const maxLat = bounds.getNorth();
+  const minLon = bounds.getWest();
+  const maxLon = bounds.getEast();
+
+  const lat2tile = (lat, zoom) => (Math.floor((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2 * Math.pow(2, zoom)));
+  const lon2tile = (lon, zoom) => (Math.floor((lon + 180) / 360 * Math.pow(2, zoom)));
+
+  const xMin = Math.max(0, lon2tile(minLon, z));
+  const xMax = Math.min(Math.pow(2, z) - 1, lon2tile(maxLon, z));
+  const yMin = Math.max(0, lat2tile(maxLat, z));
+  const yMax = Math.min(Math.pow(2, z) - 1, lat2tile(minLat, z));
+
+  if ((xMax - xMin + 1) * (yMax - yMin + 1) > 40) return;
+
+  for (let x = xMin; x <= xMax; x++) {
+    for (let y = yMin; y <= yMax; y++) {
+      const tileBounds = tile2bound(x, y, z);
+      const pbfUrl = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/${z}/${y}/${x}.pbf`;
+
+      const rect = window.L.rectangle(tileBounds, {
+        color: '#ff0000',
+        weight: 2,
+        fill: false,
+        dashArray: '4, 4'
+      });
+
+      const centerLat = (tileBounds[0][0] + tileBounds[1][0]) / 2;
+      const centerLon = (tileBounds[0][1] + tileBounds[1][1]) / 2;
+
+      const divIcon = window.L.divIcon({
+        className: 'tile-debug-label',
+        html: `<div class="tile-url-box"><a href="${pbfUrl}" target="_blank">z:${z}/y:${y}/x:${x}<br>${pbfUrl}</a></div>`,
+        iconSize: [220, 60],
+        iconAnchor: [110, 30]
+      });
+
+      const marker = window.L.marker([centerLat, centerLon], { icon: divIcon });
+
+      tileDebugLayerGroup.addLayer(rect);
+      tileDebugLayerGroup.addLayer(marker);
+    }
+  }
+};
+
 const handleOrientation = (event) => {
   if (!isCompassActive.value || !glLayer) return;
   let heading = event.webkitCompassHeading !== undefined ? event.webkitCompassHeading : (event.alpha !== null ? 360 - event.alpha : null);
@@ -186,27 +268,34 @@ onMounted(async () => {
     }
 
     let labelStr = JSON.stringify(labelStyle);
-    labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular');
-    labelStr = labelStr.replace(/Arial Bold/g, 'Noto Sans Bold');
-    labelStr = labelStr.replace(/Arial/g, 'Noto Sans Regular');
+    labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular')
+                     .replace(/Arial Bold/g, 'Noto Sans Bold')
+                     .replace(/Arial/g, 'Noto Sans Regular');
     labelStyle = JSON.parse(labelStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const allLabelLayers = labelStyle.layers || [];
-    
-    // 【核心修復】只保留 type === 'symbol'（純文字標籤）的圖層，完美過濾掉引起崩潰的 Polygon/Line 圖層
-    const symbolLabelLayers = allLabelLayers.filter(layer => layer.type === 'symbol');
 
-    symbolLabelLayers.forEach((layer) => {
+    const allLabelLayers = (labelStyle.layers || []).filter(layer => layer.type === 'symbol');
+
+    allLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
+      
       if (layer.layout) {
         delete layer.layout['icon-image'];
+        layer.layout['text-allow-overlap'] = true;
+        layer.layout['text-ignore-placement'] = true;
+      }
+
+      if (layer.id.includes('Building') || layer.id.includes('1823_Static')) {
+        if (layer.layout && !layer.layout['text-field']) {
+          layer.layout['text-field'] = '{_name}';
+        }
       }
     });
 
     const mergedStyle = {
       version: 8,
-      glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?key=${API_KEY}`,
+      glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?`,
       sources: {
         ...basemapStyle.sources,
         [labelSourceKey]: {
@@ -218,14 +307,13 @@ onMounted(async () => {
       },
       layers: [
         ...(basemapStyle.layers || []),
-        ...symbolLabelLayers
+        ...allLabelLayers
       ]
     };
 
     mergedStyle.layers.forEach((layer) => {
-      if (!layer.id.includes('BuildingAnno')) {
-        delete layer.maxzoom;
-      }
+      delete layer.maxzoom;
+
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
@@ -246,14 +334,21 @@ onMounted(async () => {
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 
+    tileDebugLayerGroup = L.layerGroup().addTo(map);
+
     currentZoom.value = map.getZoom();
     map.on('zoom', () => {
       currentZoom.value = map.getZoom();
+      updateTileGridOverlay();
+    });
+
+    map.on('moveend', () => {
+      updateTileGridOverlay();
     });
 
     glLayer = L.maplibreGL({
       style: mergedStyle,
-      transformRequest: (url) => {
+      transformRequest: (url, resourceType) => {
         let reqUrl = url;
         if (reqUrl.includes('/fonts/')) {
           reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular')
@@ -262,8 +357,8 @@ onMounted(async () => {
                          .replace(/Arial Bold/g, 'Noto Sans Bold')
                          .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
-        if (reqUrl.includes('mapapi.geodata.gov.hk') && !reqUrl.includes('key=')) {
-          reqUrl += (reqUrl.includes('?') ? '&' : '?') + `key=${API_KEY}`;
+        if (reqUrl.includes('mapapi.geodata.gov.hk')) {
+          reqUrl += (reqUrl.includes('?') ? '&' : '?');
         }
         return { url: reqUrl };
       }
@@ -271,13 +366,24 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    glLayer.on('load', () => {
-      window.debugMap = glLayer.getMaplibreMap();
-      console.log("=== DebugMap Ready (Symbol Layers Only) ===", window.debugMap);
+    glLayer.on('add', () => {
+      const maplibreMap = glLayer.getMaplibreMap();
+      if (!maplibreMap) return;
+      window.debugMap = maplibreMap;
+      maplibreMap.on('load', () => {
+        console.log("=== MapLibre Loaded Successfully ===");
+      });
+    });
+
+    map.on('moveend zoomend resize', () => {
+      const maplibreMap = glLayer?.getMaplibreMap?.();
+      if (maplibreMap) {
+        maplibreMap.resize();
+      }
     });
 
     const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Symbol Layers Filtered Successfully!').openPopup();
+    marker.bindPopup('<b>香港特別行政區</b><br>Building Labels Unified!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -337,6 +443,16 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
+.checkbox-label {
+  font-size: 12px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
 .zoom-display {
   font-size: 13px;
   color: #333;
@@ -374,6 +490,29 @@ onUnmounted(() => {
   background: #008000;
   color: #fff;
   border-color: #008000;
+}
+
+/* Tile 內嵌 URL 標籤樣式 */
+:deep(.tile-url-box) {
+  background: rgba(0, 0, 0, 0.85);
+  color: #00ffcc;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 10px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+:deep(.tile-url-box a) {
+  color: #61dafb;
+  text-decoration: none;
+}
+
+:deep(.tile-url-box a:hover) {
+  text-decoration: underline;
 }
 
 .compass-btn {
