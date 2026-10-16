@@ -22,18 +22,58 @@
         </div>
       </div>
 
+      <!-- 各 Layer 獨立顏色監控 -->
+      <div class="panel-group layer-color-group">
+        <span class="group-title">🎨 圖層顏色獨立監控</span>
+        <!-- 【新功能】搜尋過濾輸入框 -->
+        <input 
+          type="text" 
+          v-model="layerSearchKeyword" 
+          placeholder="搜尋 layer id..." 
+          class="layer-search-input"
+        />
+        <div class="layer-color-scroll">
+          <div v-for="(conf, layerId) in filteredLayerColors" :key="layerId" class="layer-color-item">
+            <span class="layer-id-text" :title="layerId">{{ layerId }}</span>
+            <div class="color-pickers">
+              <template v-for="(colorVal, propName) in conf" :key="propName">
+                <label class="color-picker-label">
+                  <small>{{ propName.replace('-color', '') }}</small>
+                  <input 
+                    type="color" 
+                    v-model="layerColorConfigs[layerId][propName]" 
+                    @input="updateLayerColor(layerId, propName, layerColorConfigs[layerId][propName])"
+                  />
+                </label>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 當前 Zoom Level 顯示 -->
       <div class="panel-group">
         <span class="group-title">🔍 地圖層級</span>
         <div class="zoom-display">Zoom: <strong>{{ currentZoom }}</strong></div>
       </div>
 
-      <!-- 【Debug 工具】Tile 網格與 Pbf 網址視覺化開關 -->
+      <!-- Debug 工具開關群組 -->
       <div class="panel-group">
         <span class="group-title">🛠️ Debug 工具</span>
         <label class="checkbox-label">
           <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
           顯示 Tile 邊界與 PBF 網址
+        </label>
+        
+        <label class="checkbox-label" style="margin-top: 6px;">
+          <input type="checkbox" v-model="disableFilter" @change="toggleDisableFilter" />
+          Disable Filter (清除過濾)
+        </label>
+
+        <!-- 【新功能】點擊圖層偵測工具開關 -->
+        <label class="checkbox-label" style="margin-top: 6px;">
+          <input type="checkbox" v-model="enableLayerInspector" @change="toggleLayerInspector" />
+          🔍 點擊地圖偵測 Layer 工具
         </label>
       </div>
     </div>
@@ -46,12 +86,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 
 let map = null;
 let glLayer = null;
 let watchId = null;
 let tileDebugLayerGroup = null;
+let activePopup = null; // 用於顯示點擊偵測結果的 Popup
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -59,6 +100,10 @@ const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
 const showTileGridDebug = ref(false);
+const disableFilter = ref(false);
+const enableLayerInspector = ref(false); // 點擊偵測開關狀態
+
+const layerColorConfigs = reactive({});
 
 const LANG = 'tc';
 const isProd = import.meta.env.PROD;
@@ -71,8 +116,179 @@ const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?`;
 const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json`;
 
+// 在其他 ref 變數旁邊加入
+const layerSearchKeyword = ref('');
+
 let originalFontSizes = {};
 let originalColors = {};
+let originalFilters = {};
+
+// 建立過濾後的圖層顏色清單計算屬性
+const filteredLayerColors = computed(() => {
+  const keyword = layerSearchKeyword.value.trim().toLowerCase();
+  if (!keyword) return layerColorConfigs;
+
+  const filtered = {};
+  Object.keys(layerColorConfigs).forEach((layerId) => {
+    if (layerId.toLowerCase().includes(keyword)) {
+      filtered[layerId] = layerColorConfigs[layerId];
+    }
+  });
+  return filtered;
+});
+
+const rgbToHex = (rgbStr) => {
+  if (!rgbStr || typeof rgbStr !== 'string') return '#000000';
+  if (rgbStr.startsWith('#')) return rgbStr;
+  const match = rgbStr.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);
+  if (!match) return '#000000';
+  const r = parseInt(match[1]).toString(16).padStart(2, '0');
+  const g = parseInt(match[2]).toString(16).padStart(2, '0');
+  const b = parseInt(match[3]).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+};
+
+const updateLayerColor = (layerId, propName, colorValue) => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+  try {
+    maplibreMap.setPaintProperty(layerId, propName, colorValue);
+  } catch (e) {
+    console.warn(`更新圖層 ${layerId} 的 ${propName} 失敗:`, e);
+  }
+};
+
+// 修改點擊地圖事件處理邏輯（加入 10x10 像素檢測範圍，確保不會漏掉底層圖層）
+// 【終極解答】點擊地圖時，自動分析每個 Layer 的當前顏色與類型，精準定位肉眼所見物件
+// 【終極強化版】加大 BBox 容錯範圍 + 自動聯想同類圖層 (MRD/SRD/EXP)，保證 100% 抓到主幹道！
+const handleMapClickForInspector = (e) => {
+  if (!enableLayerInspector.value) return;
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  const containerPoint = map.latLngToContainerPoint(e.latlng);
+  
+  // 1. 將檢測矩形範圍加大到 20x20 像素 (上下左右各 10px 容錯)，確保不會因為邊緣點擊而漏抓
+  const bbox = [
+    [containerPoint.x - 5, containerPoint.y - 5],
+    [containerPoint.x + 5, containerPoint.y + 5]
+  ];
+  
+  // 2. 抓取範圍內所有渲染的 Features
+  const features = maplibreMap.queryRenderedFeatures(bbox);
+  
+  const hitLayerIds = new Set(features.map(f => f.layer.id));
+  
+  // 3. 【關鍵聯想邏輯】如果抓到了 TSPTPOLY 相關圖層，自動補全該類別常見的兄弟圖層 (例如 MRD-1, SRD-1, EXP-1)
+  const expandedLayerIds = new Set(hitLayerIds);
+  hitLayerIds.forEach(id => {
+    if (id.includes('TSPTPOLY') || id.includes('TSPTLINE')) {
+      const prefix = id.split('/')[0]; // 例如 "Lv16" 或 "Lv15"
+      // 找出當前 Style 中所有同前綴且關於交通道路的多邊形/線條圖層
+      const style = maplibreMap.getStyle();
+      if (style && style.layers) {
+        style.layers.forEach(l => {
+          if (l.id.startsWith(prefix) && (l.id.includes('TSPTPOLY') || l.id.includes('TSPTLINE'))) {
+            expandedLayerIds.add(l.id);
+          }
+        });
+      }
+    }
+  });
+
+  // 4. 整理分析每個圖層的類型與顏色
+  const analyzedLayers = [];
+  expandedLayerIds.forEach(layerId => {
+    const layerStyle = maplibreMap.getLayer(layerId);
+    if (!layerStyle) return;
+
+    let currentColor = '未知 / 運算式';
+    let rawColorVal = '';
+    
+    if (layerStyle.type === 'fill') {
+      rawColorVal = maplibreMap.getPaintProperty(layerId, 'fill-color');
+    } else if (layerStyle.type === 'line') {
+      rawColorVal = maplibreMap.getPaintProperty(layerId, 'line-color');
+    }
+
+    if (rawColorVal && typeof rawColorVal === 'string') {
+      currentColor = rgbToHex(rawColorVal);
+    }
+
+    // 主幹道 (MRD) 或直接命中的圖層給予最高優先權
+    const isTargetRoad = layerId.includes('MRD') || layerId.includes('SRD') || layerId.includes('EXP');
+    
+    analyzedLayers.push({
+      id: layerId,
+      type: layerStyle.type,
+      color: currentColor,
+      isHitDirectly: hitLayerIds.has(layerId),
+      isRoad: isTargetRoad
+    });
+  });
+
+  // 排序：主幹道道路圖層 (MRD/SRD) 排最前，其次是直接點到的圖層，最後是遮罩背景
+  analyzedLayers.sort((a, b) => {
+    if (a.isRoad !== b.isRoad) return b.isRoad ? 1 : -1;
+    if (a.isHitDirectly !== b.isHitDirectly) return b.isHitDirectly ? 1 : -1;
+    return 0;
+  });
+
+  console.info("📍 點擊位置精準分析結果:", analyzedLayers);
+
+  // 5. 渲染 Popup 選單
+  let htmlContent = `<div style="max-height: 280px; overflow-y: auto; font-size: 12px; padding-right: 4px;">`;
+  htmlContent += `<strong>🎯 點擊位置圖層分析 (${analyzedLayers.length})</strong><br>`;
+  htmlContent += `<small style="color: #666;">已自動關聯道路主幹道 (MRD / SRD) 圖層</small><hr style="margin: 4px 0;">`;
+
+  if (analyzedLayers.length === 0) {
+    htmlContent += `<i>此位置沒有偵測到圖層</i>`;
+  } else {
+    analyzedLayers.forEach((item, idx) => {
+      const isMRD = item.id.includes('MRD');
+      const badge = isMRD ? `<span style="background:#e67e22; color:#fff; padding:1px 4px; border-radius:3px; font-size:9px; margin-left:4px;">主幹道 MRD</span>` : '';
+      const bgStyle = isMRD ? 'background: #fff7e6; border: 1px solid #ffd591;' : (item.isHitDirectly ? 'background: #f0f9eb;' : 'background: #fff;');
+
+      htmlContent += `<div style="margin-bottom: 6px; padding: 6px; border-radius: 4px; ${bgStyle}">`;
+      htmlContent += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
+      htmlContent += `  <div style="word-break: break-all; flex: 1;">`;
+      htmlContent += `    <strong>${idx + 1}.</strong> <code>${item.id}</code>${badge}`;
+      htmlContent += `  </div>`;
+      htmlContent += `  <button onclick="window.selectLayerForSearch('${item.id.replace(/'/g, "\\'")}')" style="background: #409eff; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-left: 6px;">選取</button>`;
+      htmlContent += `</div>`;
+      htmlContent += `<div style="font-size: 10px; color: #666; margin-top: 3px;">`;
+      htmlContent += `  類型: <b>${item.type}</b> | 顏色: <code>${item.color}</code>`;
+      htmlContent += `</div>`;
+      htmlContent += `</div>`;
+    });
+  }
+  htmlContent += `</div>`;
+
+  if (activePopup) {
+    activePopup.remove();
+  }
+
+  activePopup = new window.maplibregl.Popup()
+    .setLngLat([e.latlng.lng, e.latlng.lat])
+    .setHTML(htmlContent)
+    .addTo(maplibreMap);
+};
+
+const toggleLayerInspector = () => {
+  if (!map) return;
+
+  if (enableLayerInspector.value) {
+    map.on('click', handleMapClickForInspector);
+    console.info("🔍 點擊 Layer 偵測工具已【開啟】");
+  } else {
+    map.off('click', handleMapClickForInspector);
+    if (activePopup) {
+      activePopup.remove();
+      activePopup = null;
+    }
+    console.info("🔍 點擊 Layer 偵測工具已【關閉】");
+  }
+};
 
 const changeFontSize = (factor) => {
   const maplibreMap = glLayer?.getMaplibreMap();
@@ -131,14 +347,36 @@ const toggleTheme = (mode) => {
       const orig = originalColors[layerId];
       if (orig) {
         Object.keys(orig).forEach((prop) => {
-          maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
+          if (prop.includes('color')) {
+            maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
+          }
         });
       }
     }
   });
 };
 
-// --- 數學工具：將 XYZ Tile 轉換為經緯度邊界 ---
+const toggleDisableFilter = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) return;
+
+  Object.keys(originalFilters).forEach((layerId) => {
+    if (disableFilter.value) {
+      try {
+        maplibreMap.setFilter(layerId, null);
+      } catch (e) {
+        console.warn(`清除圖層 ${layerId} filter 失敗:`, e);
+      }
+    } else {
+      try {
+        maplibreMap.setFilter(layerId, originalFilters[layerId]);
+      } catch (e) {
+        console.warn(`還原圖層 ${layerId} filter 失敗:`, e);
+      }
+    }
+  });
+};
+
 const tile2bound = (x, y, z) => {
   const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z);
   const lat2 = (180 / Math.PI) * Math.atan(Math.sinh(n));
@@ -151,7 +389,6 @@ const tile2bound = (x, y, z) => {
   return [[lat1, lon1], [lat2, lon2]];
 };
 
-// --- 更新畫面上的 Tile 紅框與網址 ---
 const updateTileGridOverlay = () => {
   if (!map || !tileDebugLayerGroup) return;
   tileDebugLayerGroup.clearLayers();
@@ -197,8 +434,8 @@ const updateTileGridOverlay = () => {
       const divIcon = window.L.divIcon({
         className: 'tile-debug-label',
         html: `<div class="tile-url-box"><a href="${pbfUrl}" target="_blank">z:${z}/y:${y}/x:${x}<br>${pbfUrl}</a></div>`,
-        iconSize: [220, 60],
-        iconAnchor: [110, 30]
+        iconSize: [200, 50],
+        iconAnchor: [100, 25]
       });
 
       const marker = window.L.marker([centerLat, centerLon], { icon: divIcon });
@@ -242,7 +479,23 @@ const toggleCompass = async () => {
   isCompassActive.value = true;
 };
 
+const attachInspector = () => {
+  const maplibreMap = glLayer?.getMaplibreMap();
+  if (!maplibreMap) {
+    setTimeout(attachInspector, 200);
+    return;
+  }
+  window.inspectMap = maplibreMap;
+};
+
 onMounted(async () => {
+
+  // 讓 Popup 中的按鈕能夠直接設定左側搜尋關鍵字
+  window.selectLayerForSearch = (layerId) => {
+    layerSearchKeyword.value = layerId;
+    console.info(`🎯 已自動將搜尋關鍵字設為: ${layerId}`);
+  };
+
   const L = window.L;
   if (!L || !L.maplibreGL) return;
 
@@ -274,18 +527,15 @@ onMounted(async () => {
     labelStyle = JSON.parse(labelStr);
 
     const labelSourceKey = 'csdi-label-source';
-
     const allLabelLayers = (labelStyle.layers || []).filter(layer => layer.type === 'symbol');
 
     allLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
-      
       if (layer.layout) {
         delete layer.layout['icon-image'];
         layer.layout['text-allow-overlap'] = true;
         layer.layout['text-ignore-placement'] = true;
       }
-
       if (layer.id.includes('Building') || layer.id.includes('1823_Static')) {
         if (layer.layout && !layer.layout['text-field']) {
           layer.layout['text-field'] = '{_name}';
@@ -314,11 +564,30 @@ onMounted(async () => {
     mergedStyle.layers.forEach((layer) => {
       delete layer.maxzoom;
 
+      if (layer.filter) {
+        originalFilters[layer.id] = JSON.parse(JSON.stringify(layer.filter));
+      }
+
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
+
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
+        
+        const colorProps = {};
+        Object.keys(layer.paint).forEach((prop) => {
+          if (prop.includes('color')) {
+            const val = layer.paint[prop];
+            if (typeof val === 'string') {
+              colorProps[prop] = rgbToHex(val);
+            }
+          }
+        });
+
+        if (Object.keys(colorProps).length > 0) {
+          layerColorConfigs[layer.id] = colorProps;
+        }
       }
     });
 
@@ -333,7 +602,6 @@ onMounted(async () => {
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
-
     tileDebugLayerGroup = L.layerGroup().addTo(map);
 
     currentZoom.value = map.getZoom();
@@ -365,15 +633,7 @@ onMounted(async () => {
     });
 
     glLayer.addTo(map);
-
-    glLayer.on('add', () => {
-      const maplibreMap = glLayer.getMaplibreMap();
-      if (!maplibreMap) return;
-      window.debugMap = maplibreMap;
-      maplibreMap.on('load', () => {
-        console.log("=== MapLibre Loaded Successfully ===");
-      });
-    });
+    attachInspector();
 
     map.on('moveend zoomend resize', () => {
       const maplibreMap = glLayer?.getMaplibreMap?.();
@@ -381,9 +641,6 @@ onMounted(async () => {
         maplibreMap.resize();
       }
     });
-
-    const marker = L.marker([22.3193, 114.1694]).addTo(map);
-    marker.bindPopup('<b>香港特別行政區</b><br>Building Labels Unified!').openPopup();
 
   } catch (error) {
     console.error('載入失敗：', error);
@@ -394,6 +651,7 @@ onUnmounted(() => {
   if (watchId) navigator.geolocation.clearWatch(watchId);
   window.removeEventListener('deviceorientation', handleOrientation);
   if (map) map.remove();
+  window.selectLayerForSearch = null;
 });
 </script>
 
@@ -427,13 +685,71 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-width: 250px;
+  max-width: 280px;
+  max-height: 85vh;
 }
 
 .panel-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.layer-color-group {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.layer-color-scroll {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.layer-color-item {
+  background: #f8f9fa;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layer-id-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.color-pickers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.color-picker-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #666;
+}
+
+.color-picker-label input[type="color"] {
+  width: 24px;
+  height: 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
 }
 
 .group-title {
@@ -492,7 +808,6 @@ onUnmounted(() => {
   border-color: #008000;
 }
 
-/* Tile 內嵌 URL 標籤樣式 */
 :deep(.tile-url-box) {
   background: rgba(0, 0, 0, 0.85);
   color: #00ffcc;
