@@ -182,7 +182,8 @@ const updateTileGridOverlay = () => {
   for (let x = xMin; x <= xMax; x++) {
     for (let y = yMin; y <= yMax; y++) {
       const tileBounds = tile2bound(x, y, z);
-      const pbfUrl = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/${z}/${y}/${x}.pbf`;
+      const effectiveZ = Math.min(z, 15);
+      const pbfUrl = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/${effectiveZ}/{y}/{x}.pbf`;
 
       const rect = window.L.rectangle(tileBounds, {
         color: '#ff0000',
@@ -196,7 +197,7 @@ const updateTileGridOverlay = () => {
 
       const divIcon = window.L.divIcon({
         className: 'tile-debug-label',
-        html: `<div class="tile-url-box"><a href="${pbfUrl}" target="_blank">z:${z}/y:${y}/x:${x}<br>${pbfUrl}</a></div>`,
+        html: `<div class="tile-url-box"><a href="${pbfUrl}" target="_blank">z:${z}(req:${effectiveZ})/y:${y}/x:${x}<br>${pbfUrl}</a></div>`,
         iconSize: [220, 60],
         iconAnchor: [110, 30]
       });
@@ -262,7 +263,7 @@ onMounted(async () => {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
-        basemapStyle.sources[key].maxzoom = 15;
+        basemapStyle.sources[key].maxzoom = 15; // 💡 限制 Basemap source 最高到 15，超過時交由 transformRequest 統一降級
         delete basemapStyle.sources[key].url;
       });
     }
@@ -302,7 +303,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 20
+          maxzoom: 15
         }
       },
       layers: [
@@ -357,6 +358,18 @@ onMounted(async () => {
                          .replace(/Arial Bold/g, 'Noto Sans Bold')
                          .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
+
+        // 💡 核心修改：同時攔截 Basemap 同 Label 的 tile 請求，若 zoom > 15，自動降級至 level 15
+        if (reqUrl.includes('/vt/') && reqUrl.includes('/tile/')) {
+          const match = reqUrl.match(/\/tile\/(\d+)\/(\d+)\/(\d+)\.pbf/);
+          if (match) {
+            const zVal = parseInt(match[1], 10);
+            if (zVal > 15) {
+              reqUrl = reqUrl.replace(`/tile/${zVal}/`, `/tile/15/`);
+            }
+          }
+        }
+
         if (reqUrl.includes('mapapi.geodata.gov.hk')) {
           reqUrl += (reqUrl.includes('?') ? '&' : '?');
         }
