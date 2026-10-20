@@ -346,14 +346,15 @@ onMounted(async () => {
     const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
     const layerStyle = JSON.parse(JSON.stringify(layerStyleRaw || {}));
 
-    delete basemapStyle.sprite;
-    delete layerStyle.sprite;
+    basemapStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/light/sprite`;
+    layerStyle.sprite = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/sprite`;
 
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
         basemapStyle.sources[key].maxzoom = 15;
+        basemapStyle.sources[key].tileSize = 512;
         delete basemapStyle.sources[key].url;
       });
     }
@@ -383,6 +384,7 @@ onMounted(async () => {
 
     const mergedStyle = {
       version: 8,
+      sprite: basemapStyle.sprite,
       glyphs: `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/fonts/{fontstack}/{range}.pbf?`,
       sources: {
         ...basemapStyle.sources,
@@ -390,7 +392,8 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15  // <-- 修正為 15，讓 Label 在 level 17 時跟 basemap 一樣正確 overscaling 顯示
+          maxzoom: 15,
+          tileSize: 512
         }
       },
       layers: [
@@ -436,7 +439,8 @@ onMounted(async () => {
       maxZoom: 20,
       touchZoom: true,
       dragging: true,
-      zoomControl: false
+      zoomControl: false,
+      fadeAnimation: false
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -461,15 +465,20 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    map.on('zoomend moveend', () => {
+    // 監聽拖曳與縮放，確保全時間持續重新計算與重繪
+    const refreshMap = () => {
       currentZoom.value = map.getZoom();
       updateTileGridOverlay();
 
       const maplibreMap = glLayer?.getMaplibreMap?.();
       if (maplibreMap) {
+        maplibreMap.resize();
         maplibreMap.triggerRepaint();
       }
-    });
+    };
+
+    map.on('move drag zoom viewreset', refreshMap);
+    map.on('moveend zoomend dragend', refreshMap);
 
     map.on('resize', () => {
       const maplibreMap = glLayer?.getMaplibreMap?.();
