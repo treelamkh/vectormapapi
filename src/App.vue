@@ -42,7 +42,7 @@
             class="layer-search-input"
           />
           
-          <!-- 【新增】一鍵全 On / 全 Off 按鈕列 -->
+          <!-- 一鍵全 On / 全 Off 按鈕列 -->
           <div class="button-row" style="margin-bottom: 6px;">
             <button @click="setAllLayersVisibility(true)">✅ 一鍵全 ON</button>
             <button @click="setAllLayersVisibility(false)">❌ 一鍵全 OFF</button>
@@ -94,11 +94,6 @@
             <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
             顯示 Tile 邊界與 PBF 網址
           </label>
-          
-          <label class="checkbox-label" style="margin-top: 6px;">
-            <input type="checkbox" v-model="disableFilter" @change="toggleDisableFilter" />
-            Disable Filter (清除過濾)
-          </label>
         </div>
       </div>
     </div>
@@ -129,7 +124,6 @@ const fontScaleMultiplier = ref(1.0);
 const currentZoom = ref(15);
 
 const showTileGridDebug = ref(false);
-const disableFilter = ref(false);
 
 const layerSearchKeyword = ref('');
 const layerColorConfigs = reactive({});
@@ -145,7 +139,6 @@ const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{
 
 let originalFontSizes = {};
 let originalColors = {};
-let originalFilters = {};
 
 const filteredLayerColors = computed(() => {
   const keyword = layerSearchKeyword.value.trim().toLowerCase();
@@ -200,7 +193,7 @@ const toggleLayerVisibility = (layerId, isVisible) => {
   });
 };
 
-// 【新增】一鍵全 On / 全 Off 功能函數（會依照當前搜尋條件或全域套用）
+// 一鍵全 On / 全 Off 功能函數
 const setAllLayersVisibility = (isVisible) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
@@ -308,27 +301,6 @@ const toggleTheme = (mode) => {
             maplibreMap.setPaintProperty(layerId, prop, orig[prop]);
           }
         });
-      }
-    }
-  });
-};
-
-const toggleDisableFilter = () => {
-  const maplibreMap = glLayer?.getMaplibreMap?.();
-  if (!maplibreMap) return;
-
-  Object.keys(originalFilters).forEach((layerId) => {
-    if (disableFilter.value) {
-      try {
-        maplibreMap.setFilter(layerId, null);
-      } catch (e) {
-        console.warn(`清除圖層 ${layerId} filter 失敗:`, e);
-      }
-    } else {
-      try {
-        maplibreMap.setFilter(layerId, originalFilters[layerId]);
-      } catch (e) {
-        console.warn(`還原圖層 ${layerId} filter 失敗:`, e);
       }
     }
   });
@@ -520,10 +492,6 @@ onMounted(async () => {
 
     mergedStyle.layers.forEach((layer) => {
       delete layer.maxzoom;
-
-      if (layer.filter) {
-        originalFilters[layer.id] = JSON.parse(JSON.stringify(layer.filter));
-      }
 
       if (layer.layout && layer.layout['text-size']) {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
