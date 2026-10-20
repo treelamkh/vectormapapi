@@ -25,7 +25,6 @@
       <!-- 各 Layer 獨立顏色監控 -->
       <div class="panel-group layer-color-group">
         <span class="group-title">🎨 圖層顏色獨立監控</span>
-        <!-- 【新功能】搜尋過濾輸入框 -->
         <input 
           type="text" 
           v-model="layerSearchKeyword" 
@@ -69,12 +68,6 @@
           <input type="checkbox" v-model="disableFilter" @change="toggleDisableFilter" />
           Disable Filter (清除過濾)
         </label>
-
-        <!-- 【新功能】點擊圖層偵測工具開關 -->
-        <label class="checkbox-label" style="margin-top: 6px;">
-          <input type="checkbox" v-model="enableLayerInspector" @change="toggleLayerInspector" />
-          🔍 點擊地圖偵測 Layer 工具
-        </label>
       </div>
     </div>
 
@@ -86,13 +79,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue';
+
+// 引入本地 JSON 檔案
+import basemapStyleRaw from './assets/config/basemap-style.json';
+import layerStyleRaw from './assets/config/layer-style.json';
 
 let map = null;
 let glLayer = null;
 let watchId = null;
 let tileDebugLayerGroup = null;
-let activePopup = null; // 用於顯示點擊偵測結果的 Popup
 
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -101,8 +97,8 @@ const currentZoom = ref(15);
 
 const showTileGridDebug = ref(false);
 const disableFilter = ref(false);
-const enableLayerInspector = ref(false); // 點擊偵測開關狀態
 
+const layerSearchKeyword = ref('');
 const layerColorConfigs = reactive({});
 
 const LANG = 'tc';
@@ -112,18 +108,12 @@ const CSDI_HOST = isProd
   : `${window.location.origin}/csdi-api`;
 
 const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf`;
-const BASEMAP_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/resources/styles/root.json`;
-const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf?`;
-const LABEL_STYLE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/resources/styles/root.json`;
-
-// 在其他 ref 變數旁邊加入
-const layerSearchKeyword = ref('');
+const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf`;
 
 let originalFontSizes = {};
 let originalColors = {};
 let originalFilters = {};
 
-// 建立過濾後的圖層顏色清單計算屬性
 const filteredLayerColors = computed(() => {
   const keyword = layerSearchKeyword.value.trim().toLowerCase();
   if (!keyword) return layerColorConfigs;
@@ -149,7 +139,7 @@ const rgbToHex = (rgbStr) => {
 };
 
 const updateLayerColor = (layerId, propName, colorValue) => {
-  const maplibreMap = glLayer?.getMaplibreMap();
+  const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
   try {
     maplibreMap.setPaintProperty(layerId, propName, colorValue);
@@ -158,140 +148,8 @@ const updateLayerColor = (layerId, propName, colorValue) => {
   }
 };
 
-// 修改點擊地圖事件處理邏輯（加入 10x10 像素檢測範圍，確保不會漏掉底層圖層）
-// 【終極解答】點擊地圖時，自動分析每個 Layer 的當前顏色與類型，精準定位肉眼所見物件
-// 【終極強化版】加大 BBox 容錯範圍 + 自動聯想同類圖層 (MRD/SRD/EXP)，保證 100% 抓到主幹道！
-const handleMapClickForInspector = (e) => {
-  if (!enableLayerInspector.value) return;
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) return;
-
-  const containerPoint = map.latLngToContainerPoint(e.latlng);
-  
-  // 1. 將檢測矩形範圍加大到 20x20 像素 (上下左右各 10px 容錯)，確保不會因為邊緣點擊而漏抓
-  const bbox = [
-    [containerPoint.x - 5, containerPoint.y - 5],
-    [containerPoint.x + 5, containerPoint.y + 5]
-  ];
-  
-  // 2. 抓取範圍內所有渲染的 Features
-  const features = maplibreMap.queryRenderedFeatures(bbox);
-  
-  const hitLayerIds = new Set(features.map(f => f.layer.id));
-  
-  // 3. 【關鍵聯想邏輯】如果抓到了 TSPTPOLY 相關圖層，自動補全該類別常見的兄弟圖層 (例如 MRD-1, SRD-1, EXP-1)
-  const expandedLayerIds = new Set(hitLayerIds);
-  hitLayerIds.forEach(id => {
-    if (id.includes('TSPTPOLY') || id.includes('TSPTLINE')) {
-      const prefix = id.split('/')[0]; // 例如 "Lv16" 或 "Lv15"
-      // 找出當前 Style 中所有同前綴且關於交通道路的多邊形/線條圖層
-      const style = maplibreMap.getStyle();
-      if (style && style.layers) {
-        style.layers.forEach(l => {
-          if (l.id.startsWith(prefix) && (l.id.includes('TSPTPOLY') || l.id.includes('TSPTLINE'))) {
-            expandedLayerIds.add(l.id);
-          }
-        });
-      }
-    }
-  });
-
-  // 4. 整理分析每個圖層的類型與顏色
-  const analyzedLayers = [];
-  expandedLayerIds.forEach(layerId => {
-    const layerStyle = maplibreMap.getLayer(layerId);
-    if (!layerStyle) return;
-
-    let currentColor = '未知 / 運算式';
-    let rawColorVal = '';
-    
-    if (layerStyle.type === 'fill') {
-      rawColorVal = maplibreMap.getPaintProperty(layerId, 'fill-color');
-    } else if (layerStyle.type === 'line') {
-      rawColorVal = maplibreMap.getPaintProperty(layerId, 'line-color');
-    }
-
-    if (rawColorVal && typeof rawColorVal === 'string') {
-      currentColor = rgbToHex(rawColorVal);
-    }
-
-    // 主幹道 (MRD) 或直接命中的圖層給予最高優先權
-    const isTargetRoad = layerId.includes('MRD') || layerId.includes('SRD') || layerId.includes('EXP');
-    
-    analyzedLayers.push({
-      id: layerId,
-      type: layerStyle.type,
-      color: currentColor,
-      isHitDirectly: hitLayerIds.has(layerId),
-      isRoad: isTargetRoad
-    });
-  });
-
-  // 排序：主幹道道路圖層 (MRD/SRD) 排最前，其次是直接點到的圖層，最後是遮罩背景
-  analyzedLayers.sort((a, b) => {
-    if (a.isRoad !== b.isRoad) return b.isRoad ? 1 : -1;
-    if (a.isHitDirectly !== b.isHitDirectly) return b.isHitDirectly ? 1 : -1;
-    return 0;
-  });
-
-  console.info("📍 點擊位置精準分析結果:", analyzedLayers);
-
-  // 5. 渲染 Popup 選單
-  let htmlContent = `<div style="max-height: 280px; overflow-y: auto; font-size: 12px; padding-right: 4px;">`;
-  htmlContent += `<strong>🎯 點擊位置圖層分析 (${analyzedLayers.length})</strong><br>`;
-  htmlContent += `<small style="color: #666;">已自動關聯道路主幹道 (MRD / SRD) 圖層</small><hr style="margin: 4px 0;">`;
-
-  if (analyzedLayers.length === 0) {
-    htmlContent += `<i>此位置沒有偵測到圖層</i>`;
-  } else {
-    analyzedLayers.forEach((item, idx) => {
-      const isMRD = item.id.includes('MRD');
-      const badge = isMRD ? `<span style="background:#e67e22; color:#fff; padding:1px 4px; border-radius:3px; font-size:9px; margin-left:4px;">主幹道 MRD</span>` : '';
-      const bgStyle = isMRD ? 'background: #fff7e6; border: 1px solid #ffd591;' : (item.isHitDirectly ? 'background: #f0f9eb;' : 'background: #fff;');
-
-      htmlContent += `<div style="margin-bottom: 6px; padding: 6px; border-radius: 4px; ${bgStyle}">`;
-      htmlContent += `<div style="display: flex; justify-content: space-between; align-items: center;">`;
-      htmlContent += `  <div style="word-break: break-all; flex: 1;">`;
-      htmlContent += `    <strong>${idx + 1}.</strong> <code>${item.id}</code>${badge}`;
-      htmlContent += `  </div>`;
-      htmlContent += `  <button onclick="window.selectLayerForSearch('${item.id.replace(/'/g, "\\'")}')" style="background: #409eff; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-left: 6px;">選取</button>`;
-      htmlContent += `</div>`;
-      htmlContent += `<div style="font-size: 10px; color: #666; margin-top: 3px;">`;
-      htmlContent += `  類型: <b>${item.type}</b> | 顏色: <code>${item.color}</code>`;
-      htmlContent += `</div>`;
-      htmlContent += `</div>`;
-    });
-  }
-  htmlContent += `</div>`;
-
-  if (activePopup) {
-    activePopup.remove();
-  }
-
-  activePopup = new window.maplibregl.Popup()
-    .setLngLat([e.latlng.lng, e.latlng.lat])
-    .setHTML(htmlContent)
-    .addTo(maplibreMap);
-};
-
-const toggleLayerInspector = () => {
-  if (!map) return;
-
-  if (enableLayerInspector.value) {
-    map.on('click', handleMapClickForInspector);
-    console.info("🔍 點擊 Layer 偵測工具已【開啟】");
-  } else {
-    map.off('click', handleMapClickForInspector);
-    if (activePopup) {
-      activePopup.remove();
-      activePopup = null;
-    }
-    console.info("🔍 點擊 Layer 偵測工具已【關閉】");
-  }
-};
-
 const changeFontSize = (factor) => {
-  const maplibreMap = glLayer?.getMaplibreMap();
+  const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
 
   fontScaleMultiplier.value *= factor;
@@ -316,7 +174,7 @@ const changeFontSize = (factor) => {
 };
 
 const toggleTheme = (mode) => {
-  const maplibreMap = glLayer?.getMaplibreMap();
+  const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
 
   currentTheme.value = mode;
@@ -357,7 +215,7 @@ const toggleTheme = (mode) => {
 };
 
 const toggleDisableFilter = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
+  const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
 
   Object.keys(originalFilters).forEach((layerId) => {
@@ -450,7 +308,7 @@ const handleOrientation = (event) => {
   if (!isCompassActive.value || !glLayer) return;
   let heading = event.webkitCompassHeading !== undefined ? event.webkitCompassHeading : (event.alpha !== null ? 360 - event.alpha : null);
   if (heading !== null) {
-    const maplibreMap = glLayer.getMaplibreMap();
+    const maplibreMap = glLayer.getMaplibreMap?.();
     if (maplibreMap) maplibreMap.rotateTo(heading, { duration: 300 });
   }
 };
@@ -459,7 +317,7 @@ const toggleCompass = async () => {
   if (isCompassActive.value) {
     window.removeEventListener('deviceorientation', handleOrientation);
     if (watchId) navigator.geolocation.clearWatch(watchId);
-    const maplibreMap = glLayer?.getMaplibreMap();
+    const maplibreMap = glLayer?.getMaplibreMap?.();
     if (maplibreMap) maplibreMap.rotateTo(0, { duration: 500 });
     isCompassActive.value = false;
     return;
@@ -479,37 +337,17 @@ const toggleCompass = async () => {
   isCompassActive.value = true;
 };
 
-const attachInspector = () => {
-  const maplibreMap = glLayer?.getMaplibreMap();
-  if (!maplibreMap) {
-    setTimeout(attachInspector, 200);
-    return;
-  }
-  window.inspectMap = maplibreMap;
-};
-
 onMounted(async () => {
-
-  // 讓 Popup 中的按鈕能夠直接設定左側搜尋關鍵字
-  window.selectLayerForSearch = (layerId) => {
-    layerSearchKeyword.value = layerId;
-    console.info(`🎯 已自動將搜尋關鍵字設為: ${layerId}`);
-  };
-
+  await nextTick();
   const L = window.L;
   if (!L || !L.maplibreGL) return;
 
   try {
-    const [basemapRes, labelRes] = await Promise.all([
-      fetch(BASEMAP_STYLE_URL),
-      fetch(LABEL_STYLE_URL)
-    ]);
-
-    const basemapStyle = await basemapRes.json();
-    let labelStyle = await labelRes.json();
+    const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
+    const layerStyle = JSON.parse(JSON.stringify(layerStyleRaw || {}));
 
     delete basemapStyle.sprite;
-    delete labelStyle.sprite;
+    delete layerStyle.sprite;
 
     if (basemapStyle.sources) {
       Object.keys(basemapStyle.sources).forEach((key) => {
@@ -520,14 +358,14 @@ onMounted(async () => {
       });
     }
 
-    let labelStr = JSON.stringify(labelStyle);
-    labelStr = labelStr.replace(/Arial Regular/g, 'Noto Sans Regular')
+    let layerStr = JSON.stringify(layerStyle);
+    layerStr = layerStr.replace(/Arial Regular/g, 'Noto Sans Regular')
                      .replace(/Arial Bold/g, 'Noto Sans Bold')
                      .replace(/Arial/g, 'Noto Sans Regular');
-    labelStyle = JSON.parse(labelStr);
+    const parsedLayerStyle = JSON.parse(layerStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const allLabelLayers = (labelStyle.layers || []).filter(layer => layer.type === 'symbol');
+    const allLabelLayers = (parsedLayerStyle.layers || []).filter(layer => layer.type === 'symbol');
 
     allLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
@@ -552,7 +390,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 20
+          maxzoom: 15  // <-- 修正為 15，讓 Label 在 level 17 時跟 basemap 一樣正確 overscaling 顯示
         }
       },
       layers: [
@@ -605,37 +443,35 @@ onMounted(async () => {
     tileDebugLayerGroup = L.layerGroup().addTo(map);
 
     currentZoom.value = map.getZoom();
-    map.on('zoom', () => {
-      currentZoom.value = map.getZoom();
-      updateTileGridOverlay();
-    });
-
-    map.on('moveend', () => {
-      updateTileGridOverlay();
-    });
 
     glLayer = L.maplibreGL({
       style: mergedStyle,
       transformRequest: (url, resourceType) => {
         let reqUrl = url;
-        if (reqUrl.includes('/fonts/')) {
+        if (reqUrl && reqUrl.includes('/fonts/')) {
           reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular')
                          .replace(/Arial Regular/g, 'Noto Sans Regular')
                          .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
                          .replace(/Arial Bold/g, 'Noto Sans Bold')
                          .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
-        if (reqUrl.includes('mapapi.geodata.gov.hk')) {
-          reqUrl += (reqUrl.includes('?') ? '&' : '?');
-        }
         return { url: reqUrl };
       }
     });
 
     glLayer.addTo(map);
-    attachInspector();
 
-    map.on('moveend zoomend resize', () => {
+    map.on('zoomend moveend', () => {
+      currentZoom.value = map.getZoom();
+      updateTileGridOverlay();
+
+      const maplibreMap = glLayer?.getMaplibreMap?.();
+      if (maplibreMap) {
+        maplibreMap.triggerRepaint();
+      }
+    });
+
+    map.on('resize', () => {
       const maplibreMap = glLayer?.getMaplibreMap?.();
       if (maplibreMap) {
         maplibreMap.resize();
@@ -643,7 +479,7 @@ onMounted(async () => {
     });
 
   } catch (error) {
-    console.error('載入失敗：', error);
+    console.error('初始化地圖失敗：', error);
   }
 });
 
@@ -651,7 +487,6 @@ onUnmounted(() => {
   if (watchId) navigator.geolocation.clearWatch(watchId);
   window.removeEventListener('deviceorientation', handleOrientation);
   if (map) map.remove();
-  window.selectLayerForSearch = null;
 });
 </script>
 
@@ -700,6 +535,22 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.layer-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  outline: none;
+  background: #fff;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+
+.layer-search-input:focus {
+  border-color: #409eff;
 }
 
 .layer-color-scroll {
