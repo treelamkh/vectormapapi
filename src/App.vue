@@ -62,7 +62,7 @@
                 </label>
               </div>
               
-              <!-- 顏色選擇器（若該圖層有顏色屬性） -->
+              <!-- 顏色選擇器（支援 line-color, text-color, fill-color, circle-color 等） -->
               <div class="color-pickers" v-if="Object.keys(conf.colors).length > 0">
                 <template v-for="(colorVal, propName) in conf.colors" :key="propName">
                   <label class="color-picker-label">
@@ -141,12 +141,20 @@ let originalFontSizes = {};
 let originalColors = {};
 
 const filteredLayerColors = computed(() => {
-  const keyword = layerSearchKeyword.value.trim().toLowerCase();
-  if (!keyword) return layerColorConfigs;
+  const keywordStr = layerSearchKeyword.value.trim().toLowerCase();
+  if (!keywordStr) return layerColorConfigs;
+
+  // 支援空格分割，將輸入拆解為多個關鍵字陣列（例如 "mtr 2" -> ["mtr", "2"]）
+  const keywords = keywordStr.split(/\s+/).filter(Boolean);
+  if (keywords.length === 0) return layerColorConfigs;
 
   const filtered = {};
   Object.keys(layerColorConfigs).forEach((layerId) => {
-    if (layerId.toLowerCase().includes(keyword)) {
+    const lowerLayerId = layerId.toLowerCase();
+    // 檢查圖層 ID 是否同時包含所有輸入的關鍵字 (AND 邏輯)
+    const isMatch = keywords.every(kw => lowerLayerId.includes(kw));
+    
+    if (isMatch) {
       filtered[layerId] = layerColorConfigs[layerId];
     }
   });
@@ -211,6 +219,7 @@ const setAllLayersVisibility = (isVisible) => {
   });
 };
 
+// 更新圖層顏色（同時支援 paint 與 layout 屬性如 text-color 等）
 const updateLayerColor = (layerId, propName, colorValue) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
@@ -232,7 +241,12 @@ const updateLayerColor = (layerId, propName, colorValue) => {
 
     if (shouldUpdate) {
       try {
-        maplibreMap.setPaintProperty(targetLayerId, propName, colorValue);
+        // 判斷屬性是屬於 layout 還是 paint
+        if (propName.includes('text-') || propName.includes('icon-')) {
+          maplibreMap.setLayoutProperty(targetLayerId, propName, colorValue);
+        } else {
+          maplibreMap.setPaintProperty(targetLayerId, propName, colorValue);
+        }
       } catch (e) {
         console.warn(`更新圖層 ${targetLayerId} 的 ${propName} 失敗:`, e);
       }
@@ -497,10 +511,11 @@ onMounted(async () => {
         originalFontSizes[layer.id] = JSON.parse(JSON.stringify(layer.layout['text-size']));
       }
 
+      const colorProps = {};
+
+      // 1. 收集 paint 內的顏色屬性（例如 fill-color, line-color, circle-color 等）
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
-        
-        const colorProps = {};
         Object.keys(layer.paint).forEach((prop) => {
           if (prop.includes('color')) {
             const val = layer.paint[prop];
@@ -509,17 +524,24 @@ onMounted(async () => {
             }
           }
         });
-
-        layerColorConfigs[layer.id] = {
-          visible: layer.layout && layer.layout.visibility === 'none' ? false : true,
-          colors: colorProps
-        };
-      } else {
-        layerColorConfigs[layer.id] = {
-          visible: true,
-          colors: {}
-        };
       }
+
+      // 2. 收集 layout 內的顏色屬性（例如 symbol/text 圖層的 text-color, icon-color 等）
+      if (layer.layout) {
+        Object.keys(layer.layout).forEach((prop) => {
+          if (prop.includes('color')) {
+            const val = layer.layout[prop];
+            if (typeof val === 'string') {
+              colorProps[prop] = rgbToHex(val);
+            }
+          }
+        });
+      }
+
+      layerColorConfigs[layer.id] = {
+        visible: layer.layout && layer.layout.visibility === 'none' ? false : true,
+        colors: colorProps
+      };
     });
 
     map = L.map('map', {
@@ -573,6 +595,48 @@ onMounted(async () => {
         maplibreMap.resize();
       }
     });
+
+    // 【新增】動態攔截並補上缺失的 Sprite 圖標，解決 styleimagemissing 問題
+    const maplibreMap = glLayer.getMaplibreMap?.();
+    if (maplibreMap) {
+      maplibreMap.on('styleimagemissing', (e) => {
+        const id = e.id;
+
+        // 【關鍵修正】只針對 MTR 相關的 icon 補畫紅色圓點，其他未定義的 icon 一律略過（或給予透明圖片）
+        if (id && id.includes('MTR_POINT')) {
+          const width = 16;
+          const height = 16;
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          ctx.fillStyle = '#ff0000';
+          ctx.beginPath();
+          ctx.arc(width / 2, height / 2, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#ffffff';
+          ctx.stroke();
+
+          const imgData = ctx.getImageData(0, 0, width, height);
+
+          if (!maplibreMap.hasImage(id)) {
+            maplibreMap.addImage(id, imgData);
+          }
+        } else {
+          // 對於其他非 MTR 的缺失圖標，建立一個 1x1 的透明圖片防止 MapLibre 持續發出警告
+          const canvas = document.createElement('canvas');
+          canvas.width = 1;
+          canvas.height = 1;
+          const ctx = canvas.getContext('2d');
+          const imgData = ctx.getImageData(0, 0, 1, 1);
+          if (!maplibreMap.hasImage(id)) {
+            maplibreMap.addImage(id, imgData);
+          }
+        }
+      });
+    }
 
   } catch (error) {
     console.error('初始化地圖失敗：', error);

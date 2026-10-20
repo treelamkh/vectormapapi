@@ -3183,7 +3183,8 @@
         "_symbol",
         5
       ],
-      "minzoom": 18,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "line-cap": "round",
         "line-join": "round"
@@ -3203,7 +3204,8 @@
         "_symbol",
         6
       ],
-      "minzoom": 18,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {},
       "paint": {
         "line-color": "#B2B2B2",
@@ -3227,7 +3229,8 @@
         "_symbol",
         6
       ],
-      "minzoom": 18,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {},
       "paint": {
         "line-color": "#B2B2B2",
@@ -4066,8 +4069,8 @@
         "_symbol",
         0
       ],
-      "minzoom": 16,
-      "maxzoom": 17.998,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {},
       "paint": {
         "line-color": "#9C9C9C",
@@ -5252,8 +5255,8 @@
         "_symbol",
         1
       ],
-      "minzoom": 16,
-      "maxzoom": 17.998,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "line-join": "round"
       },
@@ -6532,8 +6535,8 @@
         "_symbol",
         1
       ],
-      "minzoom": 16,
-      "maxzoom": 17.998,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "line-cap": "round",
         "line-join": "round"
@@ -7422,8 +7425,8 @@
         "_symbol",
         1
       ],
-      "minzoom": 16,
-      "maxzoom": 17.998,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "line-join": "round"
       },
@@ -7897,8 +7900,8 @@
       "type": "symbol",
       "source": "esri",
       "source-layer": "0_MTR_POINT_10K:3",
-      "minzoom": 16,
-      "maxzoom": 16,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "icon-image": "Lv17-Lv18/0_MTR_POINT_10K:3",
         "icon-rotation-alignment": "map",
@@ -9891,8 +9894,8 @@
       "type": "symbol",
       "source": "esri",
       "source-layer": "0_MTR_POINT_10K:1",
-      "minzoom": 15,
-      "maxzoom": 15.999,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "icon-image": "Lv16/0_MTR_POINT_10K:1",
         "icon-rotation-alignment": "map",
@@ -11651,8 +11654,8 @@
       "type": "symbol",
       "source": "esri",
       "source-layer": "0_MTR_POINT_10K:2",
-      "minzoom": 14,
-      "maxzoom": 15,
+      "minzoom": 10,
+      "maxzoom": 20,
       "layout": {
         "icon-image": "Lv15/0_MTR_POINT_10K:2",
         "icon-rotation-alignment": "map",
