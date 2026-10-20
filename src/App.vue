@@ -3,71 +3,82 @@
     <div id="map"></div>
 
     <!-- 左上角控制面板 -->
-    <div class="control-panel">
-      <!-- 字體大小控制 -->
-      <div class="panel-group">
-        <span class="group-title">🔤 文字大小</span>
-        <div class="button-row">
-          <button @click="changeFontSize(1.15)">🔤 字體 +</button>
-          <button @click="changeFontSize(0.85)">🔤 字體 -</button>
-        </div>
+    <div class="control-panel" :class="{ minimized: isPanelMinimized }">
+      <!-- 面板頂部標題列與最小化按鈕 -->
+      <div class="panel-header">
+        <span class="header-title">⚙️ 地圖控制</span>
+        <button class="minimize-btn" @click="isPanelMinimized = !isPanelMinimized" :title="isPanelMinimized ? '展開面板' : '最小化面板'">
+          {{ isPanelMinimized ? '➕ 展開' : '➖ 最小化' }}
+        </button>
       </div>
 
-      <!-- 地圖主題控制 -->
-      <div class="panel-group">
-        <span class="group-title">🎨 地圖主題</span>
-        <div class="button-row">
-          <button @click="toggleTheme('dark')" :class="{ active: currentTheme === 'dark' }">🌙 暗黑模式</button>
-          <button @click="toggleTheme('light')" :class="{ active: currentTheme === 'light' }">☀️ 淺色模式</button>
+      <!-- 面板主要內容（最小化時隱藏） -->
+      <div v-show="!isPanelMinimized" class="panel-body">
+        <!-- 字體大小控制 -->
+        <div class="panel-group">
+          <span class="group-title">🔤 文字大小</span>
+          <div class="button-row">
+            <button @click="changeFontSize(1.15)">🔤 字體 +</button>
+            <button @click="changeFontSize(0.85)">🔤 字體 -</button>
+          </div>
         </div>
-      </div>
 
-      <!-- 各 Layer 獨立顏色監控 -->
-      <div class="panel-group layer-color-group">
-        <span class="group-title">🎨 圖層顏色獨立監控</span>
-        <input 
-          type="text" 
-          v-model="layerSearchKeyword" 
-          placeholder="搜尋 layer id..." 
-          class="layer-search-input"
-        />
-        <div class="layer-color-scroll">
-          <div v-for="(conf, layerId) in filteredLayerColors" :key="layerId" class="layer-color-item">
-            <span class="layer-id-text" :title="layerId">{{ layerId }}</span>
-            <div class="color-pickers">
-              <template v-for="(colorVal, propName) in conf" :key="propName">
-                <label class="color-picker-label">
-                  <small>{{ propName.replace('-color', '') }}</small>
-                  <input 
-                    type="color" 
-                    v-model="layerColorConfigs[layerId][propName]" 
-                    @input="updateLayerColor(layerId, propName, layerColorConfigs[layerId][propName])"
-                  />
-                </label>
-              </template>
+        <!-- 地圖主題控制 -->
+        <div class="panel-group">
+          <span class="group-title">🎨 地圖主題</span>
+          <div class="button-row">
+            <button @click="toggleTheme('dark')" :class="{ active: currentTheme === 'dark' }">🌙 暗黑模式</button>
+            <button @click="toggleTheme('light')" :class="{ active: currentTheme === 'light' }">☀️ 淺色模式</button>
+          </div>
+        </div>
+
+        <!-- 各 Layer 獨立顏色監控 -->
+        <div class="panel-group layer-color-group">
+          <span class="group-title">🎨 圖層顏色獨立監控</span>
+          <input 
+            type="text" 
+            v-model="layerSearchKeyword" 
+            placeholder="搜尋 layer id..." 
+            class="layer-search-input"
+          />
+          <div class="layer-color-scroll">
+            <div v-for="(conf, layerId) in filteredLayerColors" :key="layerId" class="layer-color-item">
+              <span class="layer-id-text" :title="layerId">{{ layerId }}</span>
+              <div class="color-pickers">
+                <template v-for="(colorVal, propName) in conf" :key="propName">
+                  <label class="color-picker-label">
+                    <small>{{ propName.replace('-color', '') }}</small>
+                    <input 
+                      type="color" 
+                      v-model="layerColorConfigs[layerId][propName]" 
+                      @input="updateLayerColor(layerId, propName, layerColorConfigs[layerId][propName])"
+                    />
+                  </label>
+                </template>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 當前 Zoom Level 顯示 -->
-      <div class="panel-group">
-        <span class="group-title">🔍 地圖層級</span>
-        <div class="zoom-display">Zoom: <strong>{{ currentZoom }}</strong></div>
-      </div>
+        <!-- 當前 Zoom Level 顯示 -->
+        <div class="panel-group">
+          <span class="group-title">🔍 地圖層級</span>
+          <div class="zoom-display">Zoom: <strong>{{ currentZoom }}</strong></div>
+        </div>
 
-      <!-- Debug 工具開關群組 -->
-      <div class="panel-group">
-        <span class="group-title">🛠️ Debug 工具</span>
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
-          顯示 Tile 邊界與 PBF 網址
-        </label>
-        
-        <label class="checkbox-label" style="margin-top: 6px;">
-          <input type="checkbox" v-model="disableFilter" @change="toggleDisableFilter" />
-          Disable Filter (清除過濾)
-        </label>
+        <!-- Debug 工具開關群組 -->
+        <div class="panel-group">
+          <span class="group-title">🛠️ Debug 工具</span>
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
+            顯示 Tile 邊界與 PBF 網址
+          </label>
+          
+          <label class="checkbox-label" style="margin-top: 6px;">
+            <input type="checkbox" v-model="disableFilter" @change="toggleDisableFilter" />
+            Disable Filter (清除過濾)
+          </label>
+        </div>
       </div>
     </div>
 
@@ -90,6 +101,7 @@ let glLayer = null;
 let watchId = null;
 let tileDebugLayerGroup = null;
 
+const isPanelMinimized = ref(false); // 控制面板最小化狀態
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
@@ -465,7 +477,6 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    // 監聽拖曳與縮放，確保全時間持續重新計算與重繪
     const refreshMap = () => {
       currentZoom.value = map.getZoom();
       updateTileGridOverlay();
@@ -516,6 +527,7 @@ onUnmounted(() => {
   touch-action: none;
 }
 
+/* 控制面板基本樣式 */
 .control-panel {
   position: absolute;
   top: 12px;
@@ -531,6 +543,52 @@ onUnmounted(() => {
   gap: 10px;
   max-width: 280px;
   max-height: 85vh;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 最小化狀態樣式 */
+.control-panel.minimized {
+  padding: 8px 12px;
+  width: auto;
+  max-width: 160px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #333;
+}
+
+.minimize-btn {
+  background: #f0f2f5;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.minimize-btn:hover {
+  background: #e4e7ed;
+  color: #000;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
 }
 
 .panel-group {
