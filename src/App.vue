@@ -32,26 +32,45 @@
           </div>
         </div>
 
-        <!-- 各 Layer 獨立顏色監控 -->
+        <!-- 各 Layer 獨立開關與顏色監控 -->
         <div class="panel-group layer-color-group">
-          <span class="group-title">🎨 圖層顏色獨立監控</span>
+          <span class="group-title">🎨 圖層開關與顏色獨立監控</span>
           <input 
             type="text" 
             v-model="layerSearchKeyword" 
             placeholder="搜尋 layer id..." 
             class="layer-search-input"
           />
+          
+          <!-- 【新增】一鍵全 On / 全 Off 按鈕列 -->
+          <div class="button-row" style="margin-bottom: 6px;">
+            <button @click="setAllLayersVisibility(true)">✅ 一鍵全 ON</button>
+            <button @click="setAllLayersVisibility(false)">❌ 一鍵全 OFF</button>
+          </div>
+
           <div class="layer-color-scroll">
             <div v-for="(conf, layerId) in filteredLayerColors" :key="layerId" class="layer-color-item">
-              <span class="layer-id-text" :title="layerId">{{ layerId }}</span>
-              <div class="color-pickers">
-                <template v-for="(colorVal, propName) in conf" :key="propName">
+              <div class="layer-item-header">
+                <!-- 獨立 Layer On/Off 開關 -->
+                <label class="layer-switch-label" :title="layerId">
+                  <input 
+                    type="checkbox" 
+                    v-model="conf.visible" 
+                    @change="toggleLayerVisibility(layerId, conf.visible)"
+                  />
+                  <span class="layer-id-text">{{ layerId }}</span>
+                </label>
+              </div>
+              
+              <!-- 顏色選擇器（若該圖層有顏色屬性） -->
+              <div class="color-pickers" v-if="Object.keys(conf.colors).length > 0">
+                <template v-for="(colorVal, propName) in conf.colors" :key="propName">
                   <label class="color-picker-label">
                     <small>{{ propName.replace('-color', '') }}</small>
                     <input 
                       type="color" 
-                      v-model="layerColorConfigs[layerId][propName]" 
-                      @input="updateLayerColor(layerId, propName, layerColorConfigs[layerId][propName])"
+                      v-model="conf.colors[propName]" 
+                      @input="updateLayerColor(layerId, propName, conf.colors[propName])"
                     />
                   </label>
                 </template>
@@ -69,7 +88,9 @@
         <!-- Debug 工具開關群組 -->
         <div class="panel-group">
           <span class="group-title">🛠️ Debug 工具</span>
-          <label class="checkbox-label">
+          <button class="force-refresh-btn" @click="forceReloadMap">🔄 強制刷新所有圖磚 (清快取)</button>
+
+          <label class="checkbox-label" style="margin-top: 6px;">
             <input type="checkbox" v-model="showTileGridDebug" @change="updateTileGridOverlay" />
             顯示 Tile 邊界與 PBF 網址
           </label>
@@ -101,7 +122,7 @@ let glLayer = null;
 let watchId = null;
 let tileDebugLayerGroup = null;
 
-const isPanelMinimized = ref(false); // 控制面板最小化狀態
+const isPanelMinimized = ref(false);
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
 const fontScaleMultiplier = ref(1.0);
@@ -150,14 +171,80 @@ const rgbToHex = (rgbStr) => {
   return `#${r}${g}${b}`;
 };
 
+// 切換單一圖層的 On/Off 顯示狀態
+const toggleLayerVisibility = (layerId, isVisible) => {
+  const maplibreMap = glLayer?.getMaplibreMap?.();
+  if (!maplibreMap) return;
+
+  const visibilityVal = isVisible ? 'visible' : 'none';
+  
+  const matchGroup = layerId.match(/TSPTLINE|TSPTPOLY|Road|Building|Water/i);
+  const groupKey = matchGroup ? matchGroup[0].toUpperCase() : null;
+
+  Object.keys(layerColorConfigs).forEach((targetLayerId) => {
+    let shouldUpdate = false;
+    if (targetLayerId === layerId) {
+      shouldUpdate = true;
+    } else if (groupKey && targetLayerId.toUpperCase().includes(groupKey)) {
+      shouldUpdate = true;
+      layerColorConfigs[targetLayerId].visible = isVisible;
+    }
+
+    if (shouldUpdate) {
+      try {
+        maplibreMap.setLayoutProperty(targetLayerId, 'visibility', visibilityVal);
+      } catch (e) {
+        console.warn(`切換圖層 ${targetLayerId} 顯示狀態失敗:`, e);
+      }
+    }
+  });
+};
+
+// 【新增】一鍵全 On / 全 Off 功能函數（會依照當前搜尋條件或全域套用）
+const setAllLayersVisibility = (isVisible) => {
+  const maplibreMap = glLayer?.getMaplibreMap?.();
+  if (!maplibreMap) return;
+
+  const visibilityVal = isVisible ? 'visible' : 'none';
+  const targetIds = Object.keys(filteredLayerColors.value);
+
+  targetIds.forEach((layerId) => {
+    layerColorConfigs[layerId].visible = isVisible;
+    try {
+      maplibreMap.setLayoutProperty(layerId, 'visibility', visibilityVal);
+    } catch (e) {
+      console.warn(`批次設定圖層 ${layerId} 顯隱失敗:`, e);
+    }
+  });
+};
+
 const updateLayerColor = (layerId, propName, colorValue) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
-  try {
-    maplibreMap.setPaintProperty(layerId, propName, colorValue);
-  } catch (e) {
-    console.warn(`更新圖層 ${layerId} 的 ${propName} 失敗:`, e);
-  }
+
+  const matchGroup = layerId.match(/TSPTLINE|TSPTPOLY|Road|Building|Water/i);
+  const groupKey = matchGroup ? matchGroup[0].toUpperCase() : null;
+
+  Object.keys(layerColorConfigs).forEach((targetLayerId) => {
+    let shouldUpdate = false;
+
+    if (targetLayerId === layerId) {
+      shouldUpdate = true;
+    } else if (groupKey && targetLayerId.toUpperCase().includes(groupKey)) {
+      if (layerColorConfigs[targetLayerId].colors[propName] !== undefined) {
+        shouldUpdate = true;
+        layerColorConfigs[targetLayerId].colors[propName] = colorValue;
+      }
+    }
+
+    if (shouldUpdate) {
+      try {
+        maplibreMap.setPaintProperty(targetLayerId, propName, colorValue);
+      } catch (e) {
+        console.warn(`更新圖層 ${targetLayerId} 的 ${propName} 失敗:`, e);
+      }
+    }
+  });
 };
 
 const changeFontSize = (factor) => {
@@ -245,6 +332,25 @@ const toggleDisableFilter = () => {
       }
     }
   });
+};
+
+const forceReloadMap = () => {
+  const maplibreMap = glLayer?.getMaplibreMap?.();
+  if (!maplibreMap) return;
+
+  const newBust = Date.now();
+  const style = maplibreMap.getStyle();
+  if (style && style.sources) {
+    Object.keys(style.sources).forEach((srcKey) => {
+      if (style.sources[srcKey].tiles) {
+        style.sources[srcKey].tiles = style.sources[srcKey].tiles.map(url => {
+          const cleanUrl = url.split('?')[0];
+          return `${cleanUrl}?v=${newBust}`;
+        });
+      }
+    });
+    maplibreMap.setStyle(style);
+  }
 };
 
 const tile2bound = (x, y, z) => {
@@ -366,7 +472,6 @@ onMounted(async () => {
         basemapStyle.sources[key].tiles = [BASEMAP_TILE_URL];
         basemapStyle.sources[key].minzoom = 7;
         basemapStyle.sources[key].maxzoom = 15;
-        basemapStyle.sources[key].tileSize = 512;
         delete basemapStyle.sources[key].url;
       });
     }
@@ -404,8 +509,7 @@ onMounted(async () => {
           type: 'vector',
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
-          maxzoom: 15,
-          tileSize: 512
+          maxzoom: 15
         }
       },
       layers: [
@@ -438,9 +542,15 @@ onMounted(async () => {
           }
         });
 
-        if (Object.keys(colorProps).length > 0) {
-          layerColorConfigs[layer.id] = colorProps;
-        }
+        layerColorConfigs[layer.id] = {
+          visible: layer.layout && layer.layout.visibility === 'none' ? false : true,
+          colors: colorProps
+        };
+      } else {
+        layerColorConfigs[layer.id] = {
+          visible: true,
+          colors: {}
+        };
       }
     });
 
@@ -483,13 +593,11 @@ onMounted(async () => {
 
       const maplibreMap = glLayer?.getMaplibreMap?.();
       if (maplibreMap) {
-        maplibreMap.resize();
         maplibreMap.triggerRepaint();
       }
     };
 
-    map.on('move drag zoom viewreset', refreshMap);
-    map.on('moveend zoomend dragend', refreshMap);
+    map.on('move zoom', refreshMap);
 
     map.on('resize', () => {
       const maplibreMap = glLayer?.getMaplibreMap?.();
@@ -527,7 +635,6 @@ onUnmounted(() => {
   touch-action: none;
 }
 
-/* 控制面板基本樣式 */
 .control-panel {
   position: absolute;
   top: 12px;
@@ -546,7 +653,6 @@ onUnmounted(() => {
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
-/* 最小化狀態樣式 */
 .control-panel.minimized {
   padding: 8px 12px;
   width: auto;
@@ -582,6 +688,23 @@ onUnmounted(() => {
 .minimize-btn:hover {
   background: #e4e7ed;
   color: #000;
+}
+
+.force-refresh-btn {
+  width: 100%;
+  background: #e6a23c;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.force-refresh-btn:hover {
+  background: #cf9236;
 }
 
 .panel-body {
@@ -621,7 +744,7 @@ onUnmounted(() => {
 }
 
 .layer-color-scroll {
-  max-height: 180px;
+  max-height: 200px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -639,6 +762,20 @@ onUnmounted(() => {
   gap: 4px;
 }
 
+.layer-item-header {
+  display: flex;
+  align-items: center;
+}
+
+.layer-switch-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  width: 100%;
+  overflow: hidden;
+}
+
 .layer-id-text {
   font-size: 11px;
   font-weight: 600;
@@ -652,6 +789,7 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  padding-left: 18px;
 }
 
 .color-picker-label {
