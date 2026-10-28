@@ -594,7 +594,7 @@ onMounted(async () => {
           id: dpnLayerKey,
           type: 'line',
           source: dpnSourceKey,
-          minzoom: 18,
+          minzoom: 17,
           layout: {
             'line-join': 'round',
             'line-cap': 'butt',
@@ -612,7 +612,7 @@ onMounted(async () => {
           id: midptLayerKey,
           type: 'symbol',
           source: midptSourceKey,
-          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
+          minzoom: 17, // 【新增】只在 Zoom >= 17 時顯示
           layout: {
             'icon-image': midptIconId,
             'icon-size': iconScaleMultiplier.value,
@@ -668,6 +668,8 @@ onMounted(async () => {
       zoom: 15,
       minZoom: 7,
       maxZoom: 20,
+      zoomSnap: 0.1,    // 【關鍵】允許地圖停留在小數點級別（例如 15.5），不會強制彈跳取整
+      zoomDelta: 0.1,   // 【關鍵】調整每次縮放的跨度步長
       touchZoom: true,
       dragging: true,
       zoomControl: false,
