@@ -441,12 +441,17 @@ const toggleCompass = async () => {
   isCompassActive.value = true;
 };
 
+// 【修改】不要用 import，改在 onMounted 中使用 fetch 載入
 onMounted(async () => {
   await nextTick();
   const L = window.L;
   if (!L || !L.maplibreGL) return;
 
   try {
+    // 1. 非同步讀取 public 資料夾中的 geojson 檔案
+    const response = await fetch('/trafficspeed.geojson');
+    const trafficSpeedGeoJson = await response.json();
+
     const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
     const layerStyle = JSON.parse(JSON.stringify(layerStyleRaw || {}));
 
@@ -469,14 +474,17 @@ onMounted(async () => {
     const parsedLayerStyle = JSON.parse(layerStr);
 
     const labelSourceKey = 'csdi-label-source';
+    const trafficSourceKey = 'traffic-speed-source';  // 【新增】
+    const trafficLayerKey = 'traffic-speed-layer';    // 【新增】
+
     const allLabelLayers = (parsedLayerStyle.layers || []).filter(layer => layer.type === 'symbol');
 
     allLabelLayers.forEach((layer) => {
       layer.source = labelSourceKey;
       if (layer.layout) {
         delete layer.layout['icon-image'];
-        layer.layout['text-allow-overlap'] = true;
-        layer.layout['text-ignore-placement'] = true;
+        layer.layout['text-allow-overlap'] = false;
+        layer.layout['text-ignore-placement'] = false;
       }
       if (layer.id.includes('Building') || layer.id.includes('1823_Static')) {
         if (layer.layout && !layer.layout['text-field']) {
@@ -496,11 +504,39 @@ onMounted(async () => {
           tiles: [LABEL_TILE_URL],
           minzoom: 7,
           maxzoom: 15
+        },
+        // 【新增】動態載入的 GeoJSON 來源
+        [trafficSourceKey]: {
+          type: 'geojson',
+          data: trafficSpeedGeoJson
         }
       },
       layers: [
         ...(basemapStyle.layers || []),
-        ...allLabelLayers
+        ...allLabelLayers,
+        // 【新增】交通速度 Line 圖層
+        {
+          id: trafficLayerKey,
+          type: 'line',
+          source: trafficSourceKey,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+            'visibility': 'visible'
+          },
+          paint: {
+            // 使用 MapLibre match 表達式根據 ROAD_SATURATION_LEVEL 進行顏色分類
+            'line-color': [
+              'match',
+              ['get', 'ROAD_SATURATION_LEVEL'],
+              'TRAFFIC GOOD', '#00b050',      // 綠色
+              'TRAFFIC AVERAGE', '#ffc000',   // 暗黃色
+              '#ff0000'                       // 預設（其他 value 均顯示紅閊/紅色）
+            ],
+            'line-width': 4,
+            'line-opacity': 0.85
+          }
+        }
       ]
     };
 
