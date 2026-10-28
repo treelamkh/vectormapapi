@@ -23,6 +23,23 @@
           </div>
         </div>
 
+        <!-- 新增：Icon 大小控制 -->
+        <div class="panel-group">
+          <span class="group-title">🎯 Icon 大小</span>
+          <div class="button-row" style="align-items: center; gap: 8px;">
+            <input 
+              type="range" 
+              min="0.2" 
+              max="2.5" 
+              step="0.1" 
+              v-model.number="iconScaleMultiplier" 
+              @input="changeIconSize"
+              style="flex: 1;"
+            />
+            <span style="font-size: 11px; font-weight: 600;">{{ iconScaleMultiplier.toFixed(1) }}x</span>
+          </div>
+        </div>
+
         <!-- 地圖主題控制 -->
         <div class="panel-group">
           <span class="group-title">🎨 地圖主題</span>
@@ -136,6 +153,20 @@ const CSDI_HOST = isProd
 
 const BASEMAP_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/basemap/WGS84/tile/{z}/{y}/{x}.pbf`;
 const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{y}/{x}.pbf`;
+
+const iconScaleMultiplier = ref(0.4);
+
+// 動態調整 Symbol 圖層的 Icon 大小
+const changeIconSize = () => {
+  const maplibreMap = glLayer?.getMaplibreMap?.();
+  if (!maplibreMap) return;
+
+  try {
+    maplibreMap.setLayoutProperty('3dpn-midpt-layer', 'icon-size', iconScaleMultiplier.value);
+  } catch (e) {
+    console.warn('調整 Icon 大小失敗:', e);
+  }
+};
 
 let originalFontSizes = {};
 let originalColors = {};
@@ -441,18 +472,22 @@ const toggleCompass = async () => {
   isCompassActive.value = true;
 };
 
-// 【修改】不要用 import，改在 onMounted 中使用 fetch 載入
 onMounted(async () => {
   await nextTick();
   const L = window.L;
   if (!L || !L.maplibreGL) return;
 
   try {
-    // 【修改前】const response = await fetch('/trafficspeed.geojson');
-    
-    // 【修改後】利用 import.meta.env.BASE_URL 自動適應 local 與 GitHub Pages 路徑
-    const response = await fetch(`${import.meta.env.BASE_URL}trafficspeed.geojson`);
-    const trafficSpeedGeoJson = await response.json();
+    // 1. 非同步載入所有 GeoJSON 檔案 (包括新增的 midpt 點狀資料)
+    const [dpnRes, trafficRes, midptRes] = await Promise.all([
+      fetch(`${import.meta.env.BASE_URL}3DPN_WGS84.geojson`),
+      fetch(`${import.meta.env.BASE_URL}trafficspeed.geojson`),
+      fetch(`${import.meta.env.BASE_URL}3DPN_midpt_WGS84.geojson`)
+    ]);
+
+    const dpnGeoJson = await dpnRes.json();
+    const trafficSpeedGeoJson = await trafficRes.json();
+    const midptGeoJson = await midptRes.json();
 
     const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
     const layerStyle = JSON.parse(JSON.stringify(layerStyleRaw || {}));
@@ -476,8 +511,15 @@ onMounted(async () => {
     const parsedLayerStyle = JSON.parse(layerStr);
 
     const labelSourceKey = 'csdi-label-source';
-    const trafficSourceKey = 'traffic-speed-source';  // 【新增】
-    const trafficLayerKey = 'traffic-speed-layer';    // 【新增】
+    const trafficSourceKey = 'traffic-speed-source';
+    const trafficLayerKey = 'traffic-speed-layer';
+    const dpnSourceKey = '3dpn-source';
+    const dpnLayerKey = '3dpn-layer';
+    
+    // 【新增】 Midpoint 圖層 Keys
+    const midptSourceKey = '3dpn-midpt-source';
+    const midptLayerKey = '3dpn-midpt-layer';
+    const midptIconId = 'tlamp20-icon';
 
     const allLabelLayers = (parsedLayerStyle.layers || []).filter(layer => layer.type === 'symbol');
 
@@ -495,6 +537,7 @@ onMounted(async () => {
       }
     });
 
+    // 2. 組裝帶有新 Midpoint 圖層的 Style
     const mergedStyle = {
       version: 8,
       sprite: basemapStyle.sprite,
@@ -507,16 +550,24 @@ onMounted(async () => {
           minzoom: 7,
           maxzoom: 15
         },
-        // 【新增】動態載入的 GeoJSON 來源
         [trafficSourceKey]: {
           type: 'geojson',
           data: trafficSpeedGeoJson
+        },
+        [dpnSourceKey]: {
+          type: 'geojson',
+          data: dpnGeoJson
+        },
+        // 【新增】 Midpoint GeoJSON Source
+        [midptSourceKey]: {
+          type: 'geojson',
+          data: midptGeoJson
         }
       },
       layers: [
         ...(basemapStyle.layers || []),
         ...allLabelLayers,
-        // 【新增】交通速度 Line 圖層
+        // 交通速度圖層
         {
           id: trafficLayerKey,
           type: 'line',
@@ -527,21 +578,70 @@ onMounted(async () => {
             'visibility': 'visible'
           },
           paint: {
-            // 使用 MapLibre match 表達式根據 ROAD_SATURATION_LEVEL 進行顏色分類
             'line-color': [
               'match',
               ['get', 'ROAD_SATURATION_LEVEL'],
-              'TRAFFIC GOOD', '#00b050',      // 綠色
-              'TRAFFIC AVERAGE', '#ffc000',   // 暗黃色
-              '#ff0000'                       // 預設（其他 value 均顯示紅閊/紅色）
+              'TRAFFIC GOOD', '#00b050',
+              'TRAFFIC AVERAGE', '#ffc000',
+              '#ff0000'
             ],
             'line-width': 4,
             'line-opacity': 0.85
+          }
+        },
+        // 3DPN 灰色基底線
+        {
+          id: `${dpnLayerKey}-bg`,
+          type: 'line',
+          source: dpnSourceKey,
+          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+            'visibility': 'visible'
+          },
+          paint: {
+            'line-color': '#888888',
+            'line-width': 6,
+            'line-opacity': 1.0
+          }
+        },
+        // 3DPN 黃色梅花間竹虛線
+        {
+          id: dpnLayerKey,
+          type: 'line',
+          source: dpnSourceKey,
+          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+            'visibility': 'visible'
+          },
+          paint: {
+            'line-color': '#ffcc00',
+            'line-width': 6,
+            'line-dasharray': [2, 2],
+            'line-opacity': 1.0
+          }
+        },
+        // 3DPN Midpoint Icon 點狀 Symbol 圖層
+        {
+          id: midptLayerKey,
+          type: 'symbol',
+          source: midptSourceKey,
+          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
+          layout: {
+            'icon-image': midptIconId,
+            'icon-size': iconScaleMultiplier.value,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'visibility': 'visible'
           }
         }
       ]
     };
 
+    // 收集色彩與圖層設定
     mergedStyle.layers.forEach((layer) => {
       delete layer.maxzoom;
 
@@ -551,7 +651,6 @@ onMounted(async () => {
 
       const colorProps = {};
 
-      // 1. 收集 paint 內的顏色屬性（例如 fill-color, line-color, circle-color 等）
       if (layer.paint) {
         originalColors[layer.id] = JSON.parse(JSON.stringify(layer.paint));
         Object.keys(layer.paint).forEach((prop) => {
@@ -564,7 +663,6 @@ onMounted(async () => {
         });
       }
 
-      // 2. 收集 layout 內的顏色屬性（例如 symbol/text 圖層的 text-color, icon-color 等）
       if (layer.layout) {
         Object.keys(layer.layout).forEach((prop) => {
           if (prop.includes('color')) {
@@ -604,10 +702,10 @@ onMounted(async () => {
         let reqUrl = url;
         if (reqUrl && reqUrl.includes('/fonts/')) {
           reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular')
-                         .replace(/Arial Regular/g, 'Noto Sans Regular')
-                         .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
-                         .replace(/Arial Bold/g, 'Noto Sans Bold')
-                         .replace(/Arial/g, 'Noto%20Sans%20Regular');
+                       .replace(/Arial Regular/g, 'Noto Sans Regular')
+                       .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
+                       .replace(/Arial Bold/g, 'Noto Sans Bold')
+                       .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
         return { url: reqUrl };
       }
@@ -615,55 +713,30 @@ onMounted(async () => {
 
     glLayer.addTo(map);
 
-    const refreshMap = () => {
-      currentZoom.value = map.getZoom();
-      updateTileGridOverlay();
-
-      const maplibreMap = glLayer?.getMaplibreMap?.();
-      if (maplibreMap) {
-        maplibreMap.triggerRepaint();
-      }
-    };
-
-    map.on('move zoom', refreshMap);
-
-    map.on('resize', () => {
-      const maplibreMap = glLayer?.getMaplibreMap?.();
-      if (maplibreMap) {
-        maplibreMap.resize();
-      }
-    });
-
-    // 【新增】動態攔截並補上缺失的 Sprite 圖標，解決 styleimagemissing 問題
+    // 3. 【關鍵】載入 public/tlamp20.svg 圖標並傳入 MapLibre Canvas
     const maplibreMap = glLayer.getMaplibreMap?.();
     if (maplibreMap) {
+      const img = new Image();
+      img.src = `${import.meta.env.BASE_URL}tlamp20.svg`;
+      img.onload = () => {
+        if (!maplibreMap.hasImage(midptIconId)) {
+          maplibreMap.addImage(midptIconId, img);
+          try {
+            maplibreMap.setLayoutProperty('3dpn-midpt-layer', 'icon-size', iconScaleMultiplier.value);
+          } catch (e) {
+            console.warn('調整 Icon 大小失敗:', e);
+          }
+        }
+      };
+
+      // 攔截 sprite 缺圖機制備用
       maplibreMap.on('styleimagemissing', (e) => {
         const id = e.id;
-
-        // 【關鍵修正】只針對 MTR 相關的 icon 補畫紅色圓點，其他未定義的 icon 一律略過（或給予透明圖片）
-        if (id && id.includes('MTR_POINT')) {
-          const width = 16;
-          const height = 16;
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          
-          ctx.fillStyle = '#ff0000';
-          ctx.beginPath();
-          ctx.arc(width / 2, height / 2, 6, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#ffffff';
-          ctx.stroke();
-
-          const imgData = ctx.getImageData(0, 0, width, height);
-
+        if (id === midptIconId) {
           if (!maplibreMap.hasImage(id)) {
-            maplibreMap.addImage(id, imgData);
+            maplibreMap.addImage(id, img);
           }
         } else {
-          // 對於其他非 MTR 的缺失圖標，建立一個 1x1 的透明圖片防止 MapLibre 持續發出警告
           const canvas = document.createElement('canvas');
           canvas.width = 1;
           canvas.height = 1;
@@ -675,6 +748,25 @@ onMounted(async () => {
         }
       });
     }
+
+    const refreshMap = () => {
+      currentZoom.value = map.getZoom();
+      updateTileGridOverlay();
+
+      const maplibreInstance = glLayer?.getMaplibreMap?.();
+      if (maplibreInstance) {
+        maplibreInstance.triggerRepaint();
+      }
+    };
+
+    map.on('move zoom', refreshMap);
+
+    map.on('resize', () => {
+      const maplibreInstance = glLayer?.getMaplibreMap?.();
+      if (maplibreInstance) {
+        maplibreInstance.resize();
+      }
+    });
 
   } catch (error) {
     console.error('初始化地圖失敗：', error);
