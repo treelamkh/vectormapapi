@@ -448,8 +448,10 @@ onMounted(async () => {
   if (!L || !L.maplibreGL) return;
 
   try {
-    // 1. 非同步讀取 public 資料夾中的 geojson 檔案
-    const response = await fetch('/trafficspeed.geojson');
+    // 【修改前】const response = await fetch('/trafficspeed.geojson');
+    
+    // 【修改後】利用 import.meta.env.BASE_URL 自動適應 local 與 GitHub Pages 路徑
+    const response = await fetch(`${import.meta.env.BASE_URL}trafficspeed.geojson`);
     const trafficSpeedGeoJson = await response.json();
 
     const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
