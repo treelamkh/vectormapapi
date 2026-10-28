@@ -589,38 +589,21 @@ onMounted(async () => {
             'line-opacity': 0.85
           }
         },
-        // 3DPN 灰色基底線
-        {
-          id: `${dpnLayerKey}-bg`,
-          type: 'line',
-          source: dpnSourceKey,
-          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-            'visibility': 'visible'
-          },
-          paint: {
-            'line-color': '#888888',
-            'line-width': 6,
-            'line-opacity': 1.0
-          }
-        },
-        // 3DPN 黃色梅花間竹虛線
+        // 3DPN 黃灰相間完美 Pattern 圖層
         {
           id: dpnLayerKey,
           type: 'line',
           source: dpnSourceKey,
-          minzoom: 18, // 【新增】只在 Zoom >= 18 時顯示
+          minzoom: 18,
           layout: {
             'line-join': 'round',
-            'line-cap': 'round',
+            'line-cap': 'butt',
             'visibility': 'visible'
           },
           paint: {
-            'line-color': '#ffcc00',
+            // 直接使用剛剛用 Canvas 產生的完美 Pattern 圖片進行填滿
+            'line-pattern': 'yellow-grey-pattern',
             'line-width': 6,
-            'line-dasharray': [2, 2],
             'line-opacity': 1.0
           }
         },
@@ -712,10 +695,39 @@ onMounted(async () => {
     });
 
     glLayer.addTo(map);
+    
 
     // 3. 【關鍵】載入 public/tlamp20.svg 圖標並傳入 MapLibre Canvas
     const maplibreMap = glLayer.getMaplibreMap?.();
     if (maplibreMap) {
+      const patternCanvas = document.createElement('canvas');
+      patternCanvas.width = 24;  // 總寬度加寬
+      patternCanvas.height = 6;  
+      const pCtx = patternCanvas.getContext('2d');
+
+      // 1. 【左邊安全帶】前 6px 強制全黃色
+      pCtx.fillStyle = '#ffcc00';
+      pCtx.fillRect(0, 0, 6, 6);
+
+      // 2. 【中間循環段】中間 12px 畫黃灰交替 (例如 6px 黃 + 6px 灰)
+      pCtx.fillStyle = '#ffcc00';
+      pCtx.fillRect(6, 0, 6, 6);
+      pCtx.fillStyle = '#888888';
+      pCtx.fillRect(12, 0, 6, 6);
+
+      // 3. 【右邊安全帶】最後 6px 強制全黃色
+      pCtx.fillStyle = '#ffcc00';
+      pCtx.fillRect(18, 0, 6, 6);
+
+      const patternImg = new Image();
+      patternImg.src = patternCanvas.toDataURL();
+      patternImg.onload = () => {
+        if (!maplibreMap.hasImage('yellow-grey-pattern')) {
+          maplibreMap.addImage('yellow-grey-pattern', patternImg);
+        }
+      };
+    
+
       const img = new Image();
       img.src = `${import.meta.env.BASE_URL}tlamp20.svg`;
       img.onload = () => {
