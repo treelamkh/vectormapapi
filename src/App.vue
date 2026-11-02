@@ -715,6 +715,8 @@ onMounted(async () => {
   // 如果想完全關閉慣性滾動
     maplibreMap.dragPan.enable();
 
+    
+
       const patternCanvas = document.createElement('canvas');
       patternCanvas.width = 24;  // 總寬度加寬
       patternCanvas.height = 6;  
@@ -811,6 +813,14 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+
+#map-container, #map, .maplibregl-map, .leaflet-container {
+  /* 強制所有硬件加速轉換瞬間完成，無任何過渡 */
+  transition: none !important;
+  transform: none !important;
+  animation: none !important;
+}
+
 #map-container {
   position: relative;
   width: 100vw;
