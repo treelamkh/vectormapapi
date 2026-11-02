@@ -673,8 +673,10 @@ onMounted(async () => {
       touchZoom: true,
       dragging: true,
       zoomControl: false,
-      fadeAnimation: false,
-      zoomAnimation: false
+      zoomAnimation: false,     // 關閉桌面/一般縮放動畫
+      fadeAnimation: false,      // 關閉淡入淡出
+      inertia: false,            // 【關鍵】關閉手機上的慣性滑動/縮放緩衝動畫
+      boxZoom: false
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -708,6 +710,10 @@ onMounted(async () => {
       zoom: currentZoom.value,
       animate: false 
     });
+    maplibreMap.boxZoom.disable();
+    maplibreMap.scrollZoom.enable(); 
+  // 如果想完全關閉慣性滾動
+    maplibreMap.dragPan.enable();
 
       const patternCanvas = document.createElement('canvas');
       patternCanvas.width = 24;  // 總寬度加寬
