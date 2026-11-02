@@ -673,7 +673,8 @@ onMounted(async () => {
       touchZoom: true,
       dragging: true,
       zoomControl: false,
-      fadeAnimation: false
+      fadeAnimation: false,
+      zoomAnimation: true
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
