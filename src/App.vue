@@ -23,7 +23,7 @@
           </div>
         </div>
 
-        <!-- 新增：Icon 大小控制 -->
+        <!-- Icon 大小控制 -->
         <div class="panel-group">
           <span class="group-title">🎯 Icon 大小</span>
           <div class="button-row" style="align-items: center; gap: 8px;">
@@ -66,9 +66,28 @@
           </div>
 
           <div class="layer-color-scroll">
+            <!-- 【新增】獨立動態 Layer 項目 (Move End Layer & Zooming Layer) -->
+            <div class="layer-color-item">
+              <div class="layer-item-header">
+                <label class="layer-switch-label" title="MoveEnd Layer (tlamp20.png)">
+                  <input type="checkbox" v-model="isMoveEndLayerVisible" @change="toggleCustomLayerGroup('moveend', isMoveEndLayerVisible)" />
+                  <span class="layer-id-text">📍 MoveEnd Layer (tlamp20)</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="layer-color-item">
+              <div class="layer-item-header">
+                <label class="layer-switch-label" title="Zooming Layer (tlamp20.png)">
+                  <input type="checkbox" v-model="isZoomingLayerVisible" @change="toggleCustomLayerGroup('zooming', isZoomingLayerVisible)" />
+                  <span class="layer-id-text">📍 Zooming Layer (tlamp20)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 原有的 MapLibre 圖層清單 -->
             <div v-for="(conf, layerId) in filteredLayerColors" :key="layerId" class="layer-color-item">
               <div class="layer-item-header">
-                <!-- 獨立 Layer On/Off 開關 -->
                 <label class="layer-switch-label" :title="layerId">
                   <input 
                     type="checkbox" 
@@ -79,7 +98,6 @@
                 </label>
               </div>
               
-              <!-- 顏色選擇器（支援 line-color, text-color, fill-color, circle-color 等） -->
               <div class="color-pickers" v-if="Object.keys(conf.colors).length > 0">
                 <template v-for="(colorVal, propName) in conf.colors" :key="propName">
                   <label class="color-picker-label">
@@ -134,6 +152,14 @@ let glLayer = null;
 let watchId = null;
 let tileDebugLayerGroup = null;
 
+let moveEndLayerGroup = null;
+let zoomingLayerGroup = null;
+let cachedMidptGeoJson = null;
+
+// 【新增】控制兩個自訂 Layer 顯示狀態的響應式變數
+const isMoveEndLayerVisible = ref(true);
+const isZoomingLayerVisible = ref(true);
+
 const isPanelMinimized = ref(false);
 const isCompassActive = ref(false);
 const currentTheme = ref('light');
@@ -156,7 +182,6 @@ const LABEL_TILE_URL = `${CSDI_HOST}/v1.0.0/vt/label/hk/${LANG}/WGS84/tile/{z}/{
 
 const iconScaleMultiplier = ref(0.4);
 
-// 動態調整 Symbol 圖層的 Icon 大小
 const changeIconSize = () => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
@@ -175,14 +200,12 @@ const filteredLayerColors = computed(() => {
   const keywordStr = layerSearchKeyword.value.trim().toLowerCase();
   if (!keywordStr) return layerColorConfigs;
 
-  // 支援空格分割，將輸入拆解為多個關鍵字陣列（例如 "mtr 2" -> ["mtr", "2"]）
   const keywords = keywordStr.split(/\s+/).filter(Boolean);
   if (keywords.length === 0) return layerColorConfigs;
 
   const filtered = {};
   Object.keys(layerColorConfigs).forEach((layerId) => {
     const lowerLayerId = layerId.toLowerCase();
-    // 檢查圖層 ID 是否同時包含所有輸入的關鍵字 (AND 邏輯)
     const isMatch = keywords.every(kw => lowerLayerId.includes(kw));
     
     if (isMatch) {
@@ -203,13 +226,29 @@ const rgbToHex = (rgbStr) => {
   return `#${r}${g}${b}`;
 };
 
-// 切換單一圖層的 On/Off 顯示狀態
+// 【新增】控制兩個獨立 Leaflet Layer Group 顯示與隱藏的切換函數
+const toggleCustomLayerGroup = (type, isVisible) => {
+  if (!map) return;
+  if (type === 'moveend' && moveEndLayerGroup) {
+    if (isVisible) {
+      if (!map.hasLayer(moveEndLayerGroup)) map.addLayer(moveEndLayerGroup);
+    } else {
+      if (map.hasLayer(moveEndLayerGroup)) map.removeLayer(moveEndLayerGroup);
+    }
+  } else if (type === 'zooming' && zoomingLayerGroup) {
+    if (isVisible) {
+      if (!map.hasLayer(zoomingLayerGroup)) map.addLayer(zoomingLayerGroup);
+    } else {
+      if (map.hasLayer(zoomingLayerGroup)) map.removeLayer(zoomingLayerGroup);
+    }
+  }
+};
+
 const toggleLayerVisibility = (layerId, isVisible) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
 
   const visibilityVal = isVisible ? 'visible' : 'none';
-  
   const matchGroup = layerId.match(/TSPTLINE|TSPTPOLY|Road|Building|Water/i);
   const groupKey = matchGroup ? matchGroup[0].toUpperCase() : null;
 
@@ -232,7 +271,6 @@ const toggleLayerVisibility = (layerId, isVisible) => {
   });
 };
 
-// 一鍵全 On / 全 Off 功能函數
 const setAllLayersVisibility = (isVisible) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
@@ -250,7 +288,6 @@ const setAllLayersVisibility = (isVisible) => {
   });
 };
 
-// 更新圖層顏色（同時支援 paint 與 layout 屬性如 text-color 等）
 const updateLayerColor = (layerId, propName, colorValue) => {
   const maplibreMap = glLayer?.getMaplibreMap?.();
   if (!maplibreMap) return;
@@ -272,7 +309,6 @@ const updateLayerColor = (layerId, propName, colorValue) => {
 
     if (shouldUpdate) {
       try {
-        // 判斷屬性是屬於 layout 還是 paint
         if (propName.includes('text-') || propName.includes('icon-')) {
           maplibreMap.setLayoutProperty(targetLayerId, propName, colorValue);
         } else {
@@ -478,7 +514,6 @@ onMounted(async () => {
   if (!L || !L.maplibreGL) return;
 
   try {
-    // 1. 非同步載入所有 GeoJSON 檔案 (包括新增的 midpt 點狀資料)
     const [dpnRes, trafficRes, midptRes] = await Promise.all([
       fetch(`${import.meta.env.BASE_URL}3DPN_WGS84.geojson`),
       fetch(`${import.meta.env.BASE_URL}trafficspeed.geojson`),
@@ -487,7 +522,7 @@ onMounted(async () => {
 
     const dpnGeoJson = await dpnRes.json();
     const trafficSpeedGeoJson = await trafficRes.json();
-    const midptGeoJson = await midptRes.json();
+    cachedMidptGeoJson = await midptRes.json();
 
     const basemapStyle = JSON.parse(JSON.stringify(basemapStyleRaw || {}));
     const layerStyle = JSON.parse(JSON.stringify(layerStyleRaw || {}));
@@ -516,7 +551,6 @@ onMounted(async () => {
     const dpnSourceKey = '3dpn-source';
     const dpnLayerKey = '3dpn-layer';
     
-    // 【新增】 Midpoint 圖層 Keys
     const midptSourceKey = '3dpn-midpt-source';
     const midptLayerKey = '3dpn-midpt-layer';
     const midptIconId = 'tlamp20-icon';
@@ -537,7 +571,6 @@ onMounted(async () => {
       }
     });
 
-    // 2. 組裝帶有新 Midpoint 圖層的 Style
     const mergedStyle = {
       version: 8,
       sprite: basemapStyle.sprite,
@@ -558,16 +591,14 @@ onMounted(async () => {
           type: 'geojson',
           data: dpnGeoJson
         },
-        // 【新增】 Midpoint GeoJSON Source
         [midptSourceKey]: {
           type: 'geojson',
-          data: midptGeoJson
+          data: cachedMidptGeoJson
         }
       },
       layers: [
         ...(basemapStyle.layers || []),
         ...allLabelLayers,
-        // 交通速度圖層
         {
           id: trafficLayerKey,
           type: 'line',
@@ -589,7 +620,6 @@ onMounted(async () => {
             'line-opacity': 0.85
           }
         },
-        // 3DPN 黃灰相間完美 Pattern 圖層
         {
           id: dpnLayerKey,
           type: 'line',
@@ -601,18 +631,16 @@ onMounted(async () => {
             'visibility': 'visible'
           },
           paint: {
-            // 直接使用剛剛用 Canvas 產生的完美 Pattern 圖片進行填滿
             'line-pattern': 'yellow-grey-pattern',
             'line-width': 6,
             'line-opacity': 1.0
           }
         },
-        // 3DPN Midpoint Icon 點狀 Symbol 圖層
         {
           id: midptLayerKey,
           type: 'symbol',
           source: midptSourceKey,
-          minzoom: 17, // 【新增】只在 Zoom >= 17 時顯示
+          minzoom: 17,
           layout: {
             'icon-image': midptIconId,
             'icon-size': iconScaleMultiplier.value,
@@ -624,7 +652,6 @@ onMounted(async () => {
       ]
     };
 
-    // 收集色彩與圖層設定
     mergedStyle.layers.forEach((layer) => {
       delete layer.maxzoom;
 
@@ -668,16 +695,20 @@ onMounted(async () => {
       zoom: 15,
       minZoom: 7,
       maxZoom: 20,
-      zoomSnap: 0.1,    // 【關鍵】允許地圖停留在小數點級別（例如 15.5），不會強制彈跳取整
-      zoomDelta: 0.1,   // 【關鍵】調整每次縮放的跨度步長
+      zoomSnap: 0.1,
+      zoomDelta: 0.1,
       touchZoom: true,
       dragging: true,
       zoomControl: false,
-      fadeAnimation: false
+      fadeAnimation: false,
+      zoomAnimation: false
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
     tileDebugLayerGroup = L.layerGroup().addTo(map);
+
+    moveEndLayerGroup = L.layerGroup().addTo(map);
+    zoomingLayerGroup = L.layerGroup().addTo(map);
 
     currentZoom.value = map.getZoom();
 
@@ -687,10 +718,10 @@ onMounted(async () => {
         let reqUrl = url;
         if (reqUrl && reqUrl.includes('/fonts/')) {
           reqUrl = reqUrl.replace(/Arial%20Regular/g, 'Noto%20Sans%20Regular')
-                       .replace(/Arial Regular/g, 'Noto Sans Regular')
-                       .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
-                       .replace(/Arial Bold/g, 'Noto Sans Bold')
-                       .replace(/Arial/g, 'Noto%20Sans%20Regular');
+                         .replace(/Arial Regular/g, 'Noto Sans Regular')
+                         .replace(/Arial%20Bold/g, 'Noto%20Sans%20Bold')
+                         .replace(/Arial Bold/g, 'Noto Sans Bold')
+                         .replace(/Arial/g, 'Noto%20Sans%20Regular');
         }
         return { url: reqUrl };
       }
@@ -698,26 +729,19 @@ onMounted(async () => {
 
     glLayer.addTo(map);
     
-
-    // 3. 【關鍵】載入 public/tlamp20.svg 圖標並傳入 MapLibre Canvas
     const maplibreMap = glLayer.getMaplibreMap?.();
     if (maplibreMap) {
       const patternCanvas = document.createElement('canvas');
-      patternCanvas.width = 24;  // 總寬度加寬
+      patternCanvas.width = 24; 
       patternCanvas.height = 6;  
       const pCtx = patternCanvas.getContext('2d');
 
-      // 1. 【左邊安全帶】前 6px 強制全黃色
       pCtx.fillStyle = '#ffcc00';
       pCtx.fillRect(0, 0, 6, 6);
-
-      // 2. 【中間循環段】中間 12px 畫黃灰交替 (例如 6px 黃 + 6px 灰)
       pCtx.fillStyle = '#ffcc00';
       pCtx.fillRect(6, 0, 6, 6);
       pCtx.fillStyle = '#888888';
       pCtx.fillRect(12, 0, 6, 6);
-
-      // 3. 【右邊安全帶】最後 6px 強制全黃色
       pCtx.fillStyle = '#ffcc00';
       pCtx.fillRect(18, 0, 6, 6);
 
@@ -728,7 +752,6 @@ onMounted(async () => {
           maplibreMap.addImage('yellow-grey-pattern', patternImg);
         }
       };
-    
 
       const img = new Image();
       img.src = `${import.meta.env.BASE_URL}tlamp20.png`;
@@ -743,7 +766,6 @@ onMounted(async () => {
         }
       };
 
-      // 攔截 sprite 缺圖機制備用
       maplibreMap.on('styleimagemissing', (e) => {
         const id = e.id;
         if (id === midptIconId) {
@@ -774,16 +796,51 @@ onMounted(async () => {
     };
 
     map.on('moving', refreshMap);
-    map.on('zooming', refreshMap);
     map.on('zoomend', refreshMap);
-    map.on('moveend', refreshMap);
+    map.on('movestart', refreshMap);
 
-    // map.on('resize', () => {
-    //   const maplibreInstance = glLayer?.getMaplibreMap?.();
-    //   if (maplibreInstance) {
-    //     maplibreInstance.resize();
-    //   }
-    // });
+    const createTlampIcon = () => {
+      return L.icon({
+        iconUrl: `${import.meta.env.BASE_URL}tlamp20.png`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+    };
+
+    map.on('moveend', () => {
+      refreshMap();
+      if (!moveEndLayerGroup || !cachedMidptGeoJson) return;
+
+      moveEndLayerGroup.clearLayers();
+
+      // 只有當面板中的開關是開啟狀態時才把點加進 LayerGroup
+      if (isMoveEndLayerVisible.value) {
+        const moveEndGeoJsonLayer = L.geoJSON(cachedMidptGeoJson, {
+          pointToLayer: (feature, latlng) => {
+            return L.marker(latlng, { icon: createTlampIcon() });
+          }
+        });
+        moveEndLayerGroup.addLayer(moveEndGeoJsonLayer);
+      }
+    });
+
+    map.on('zooming', () => {
+      refreshMap();
+      if (!zoomingLayerGroup || !cachedMidptGeoJson) return;
+
+      zoomingLayerGroup.clearLayers();
+
+      // 只有當面板中的開關是開啟狀態時才把點加進 LayerGroup
+      if (isZoomingLayerVisible.value) {
+        const zoomingGeoJsonLayer = L.geoJSON(cachedMidptGeoJson, {
+          pointToLayer: (feature, latlng) => {
+            return L.marker(latlng, { icon: createTlampIcon() });
+          }
+        });
+        zoomingLayerGroup.addLayer(zoomingGeoJsonLayer);
+      }
+      refreshMap();
+    });
 
   } catch (error) {
     console.error('初始化地圖失敗：', error);
