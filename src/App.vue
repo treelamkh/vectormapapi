@@ -731,7 +731,7 @@ onMounted(async () => {
     
 
       const img = new Image();
-      img.src = `${import.meta.env.BASE_URL}tlamp20.svg`;
+      img.src = `${import.meta.env.BASE_URL}tlamp20.png`;
       img.onload = () => {
         if (!maplibreMap.hasImage(midptIconId)) {
           maplibreMap.addImage(midptIconId, img);
@@ -773,14 +773,17 @@ onMounted(async () => {
       }
     };
 
-    map.on('move zoom', refreshMap);
+    map.on('moving', refreshMap);
+    map.on('zooming', refreshMap);
+    map.on('zoomend', refreshMap);
+    map.on('moveend', refreshMap);
 
-    map.on('resize', () => {
-      const maplibreInstance = glLayer?.getMaplibreMap?.();
-      if (maplibreInstance) {
-        maplibreInstance.resize();
-      }
-    });
+    // map.on('resize', () => {
+    //   const maplibreInstance = glLayer?.getMaplibreMap?.();
+    //   if (maplibreInstance) {
+    //     maplibreInstance.resize();
+    //   }
+    // });
 
   } catch (error) {
     console.error('初始化地圖失敗：', error);
